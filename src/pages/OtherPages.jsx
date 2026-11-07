@@ -42,6 +42,7 @@ export function Integrations({ sales = [], products = [], toast }) {
       <div className="integrationCards">
         <DropiConnection toast={toast} />
         <DropiWebConnection toast={toast} />
+        <WhatsAppConnection toast={toast} />
         {['Evolut', 'Dropea', 'Jumpseller', 'Walmart'].map(name => {
           const available = hasCatalog(name);
           const connected = connections?.[name]?.connected || connections?.[name.toLowerCase()]?.state?.startsWith('connected');
