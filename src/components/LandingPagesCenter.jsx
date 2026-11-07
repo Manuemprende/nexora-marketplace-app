@@ -721,27 +721,6 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
             {data.totals?.total_active_now || 0}
             <span style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--muted, #64748b)' }}>activos ahora</span>
           </div>
-          <div style={{ marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-            {(data.landings || []).filter(l => l.active_now > 0).length > 0 ? (
-              (data.landings || []).filter(l => l.active_now > 0).map(l => (
-                <span key={l.id} style={{
-                  fontSize: '0.68rem',
-                  fontWeight: 700,
-                  padding: '1px 7px',
-                  borderRadius: '999px',
-                  background: 'rgba(34, 197, 94, 0.16)',
-                  color: '#4ade80',
-                  border: '1px solid rgba(34, 197, 94, 0.35)'
-                }}>
-                  🟢 {l.name.split('·')[0].trim()}: {l.active_now}
-                </span>
-              ))
-            ) : (
-              <span style={{ fontSize: '0.68rem', color: 'var(--muted, #64748b)' }}>
-                Sin visitantes activos en los últimos 3 min
-              </span>
-            )}
-          </div>
         </div>
 
         <div className="nx-kpi-item">
@@ -817,55 +796,36 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
               >
                 {/* Header of Card */}
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
-                      <Globe size={18} color={isRunning ? '#22c55e' : '#0066ff'} />
-                      <h3 className="nx-land-name" style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0 }}>
+                      <Globe size={18} color={isRunning ? '#22c55e' : '#0066ff'} style={{ flexShrink: 0 }} />
+                      <h3 className="nx-land-name" style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {landing.name}
                       </h3>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleCampaign(landing, false)}
-                        title={isRunning ? 'Clic para pausar campaña (quitar contorno verde)' : 'Clic para marcar esta landing EN CAMPAÑA (activar contorno verde)'}
-                        style={{
-                          fontSize: '0.66rem',
-                          fontWeight: 800,
-                          padding: '2px 8px',
-                          borderRadius: '999px',
-                          cursor: 'pointer',
-                          background: isRunning ? 'rgba(34, 197, 94, 0.2)' : 'rgba(148, 163, 184, 0.12)',
-                          color: isRunning ? '#4ade80' : '#94a3b8',
-                          border: isRunning ? '1px solid rgba(34, 197, 94, 0.55)' : '1px solid rgba(148, 163, 184, 0.28)',
-                          letterSpacing: '0.02em',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                      >
-                        {isRunning ? '🟢 EN CAMPAÑA' : '⚪ Activar Campaña'}
-                      </button>
                     </div>
 
                     {/* Green Live Pill */}
                     <div style={{ 
-                      background: landing.active_now > 0 ? 'rgba(34, 197, 94, 0.14)' : 'rgba(148, 163, 184, 0.12)', 
-                      color: landing.active_now > 0 ? '#16a34a' : '#64748b', 
+                      background: (isRunning && landing.active_now > 0) ? 'rgba(34, 197, 94, 0.18)' : (isRunning ? 'rgba(34, 197, 94, 0.1)' : 'rgba(148, 163, 184, 0.12)'), 
+                      color: isRunning ? '#22c55e' : '#64748b', 
+                      border: isRunning ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid transparent',
                       fontSize: '0.74rem', 
                       fontWeight: 700, 
-                      padding: '2px 8px', 
+                      padding: '2px 9px', 
                       borderRadius: '999px',
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '5px',
-                      whiteSpace: 'nowrap'
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0
                     }}>
-                      <span className={landing.active_now > 0 ? "nx-live-dot" : ""} style={{ 
+                      <span className={isRunning && landing.active_now > 0 ? "nx-live-dot" : ""} style={{ 
                         width: '7px', 
                         height: '7px', 
                         borderRadius: '50%', 
-                        background: landing.active_now > 0 ? '#22c55e' : '#94a3b8'
+                        background: isRunning ? '#22c55e' : '#94a3b8'
                       }} />
-                      {landing.active_now} {landing.active_now === 1 ? 'en vivo' : 'en vivo'}
+                      {isRunning ? (landing.active_now + ' en vivo') : 'En pausa'}
                     </div>
                   </div>
 
@@ -954,12 +914,40 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
                   </div>
                 </div>
 
-                {/* Card Actions: botones compactos, discretos y modernos */}
+                {/* Card Actions: botones compactos con bot?n de Campa?a Activa */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingTop: '8px', borderTop: '1px solid var(--border, #f1f5f9)' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleCampaign(landing, false)}
+                    title={isRunning ? 'Landing activa en campa?a publicitaria (clic para pausar)' : 'Activar esta landing en campa?a publicitaria (enciende borde verde y conteo en vivo)'}
+                    style={{
+                      flex: 1.15,
+                      height: '32px',
+                      borderRadius: '6px',
+                      padding: '0 10px',
+                      fontSize: '0.76rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '5px',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.15s ease',
+                      background: isRunning ? '#16a34a' : 'rgba(148, 163, 184, 0.12)',
+                      color: isRunning ? '#ffffff' : '#cbd5e1',
+                      border: isRunning ? '1px solid #22c55e' : '1px solid rgba(148, 163, 184, 0.3)',
+                      boxShadow: isRunning ? '0 0 12px rgba(34, 197, 94, 0.35)' : 'none'
+                    }}
+                  >
+                    <Radio size={13} color={isRunning ? '#ffffff' : '#94a3b8'} />
+                    {isRunning ? 'En Campa?a' : 'Activar Campa?a'}
+                  </button>
+
                   <button 
                     className="nx-btn-orders" 
                     onClick={() => setSelectedLandingOrders(landing)}
-                    style={{ flex: 1 }}
+                    style={{ flex: 0.95 }}
                   >
                     <ShoppingBag size={13} />
                     Pedidos ({landing.orders_today})

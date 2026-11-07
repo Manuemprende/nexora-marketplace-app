@@ -244,8 +244,9 @@ export function trackVisit(db, input = {}) {
   const today = getLocalDateString();
   const currentIso = now();
 
+  ensureCampaignColumn(db);
   transaction(db, () => {
-    const landing = db.prepare('SELECT id FROM landings WHERE id=?').get(landingId);
+    let landing = db.prepare('SELECT id, campaign_active FROM landings WHERE id=?').get(landingId);
     if (!landing) {
       const defaultName = input.landing_name || `Landing ${landingId}`;
       const defaultUrl = input.url || `https://${landingId}.pidedirecto.cyou`;
@@ -264,6 +265,10 @@ export function trackVisit(db, input = {}) {
       );
     }
 
+    // Solo registrar visitas y usuarios en vivo si la landing est? activa EN CAMPA?A
+    if (!landing || !landing.campaign_active) {
+      return;
+    }
     const existingVisit = db.prepare('SELECT id FROM landing_visits WHERE landing_id=? AND date=? AND visitor_id=?').get(
       landingId,
       today,
@@ -789,11 +794,11 @@ export function getLandingsMetrics(db, query = {}) {
   const allLandings = db.prepare('SELECT * FROM landings ORDER BY created_at DESC').all();
 
   const list = allLandings.map(landing => {
-    const activeRow = db.prepare(`
+    const activeRow = landing.campaign_active ? db.prepare(`
       SELECT COUNT(DISTINCT visitor_id) as c 
       FROM landing_visits 
       WHERE landing_id=? AND last_ping >= ?
-    `).get(landing.id, activeThreshold);
+    `).get(landing.id, activeThreshold) : { c: 0 };
     const activeNow = activeRow?.c || 0;
 
     let visitsPeriod = 0;
@@ -1605,7 +1610,7 @@ export function toggleLandingCampaign(db, id, input = {}) {
   db.prepare('UPDATE landings SET campaign_active=? WHERE id=?').run(nextActive, landingId);
 
   let visitsCleared = 0;
-  if (input.reset_visits) {
+  if (input.reset_visits || !nextActive) {
     const res = db.prepare('DELETE FROM landing_visits WHERE landing_id=?').run(landingId);
     visitsCleared = res.changes || 0;
   }
