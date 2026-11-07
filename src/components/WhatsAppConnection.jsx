@@ -83,7 +83,7 @@ export default function WhatsAppConnection({readOnly = false}) {
       <div className="connectionCardHead">
         <img src="/platform-logos/whatsapp.svg" alt="WhatsApp" />
         <div>
-          <h3>WhatsApp Nexora (Confirmación COD & POS)</h3>
+          <h3>WhatsApp Nexora</h3>
           <span className={'tag ' + (data?.connected ? 'success' : 'neutral')}>{label}</span>
         </div>
       </div>
@@ -92,7 +92,8 @@ export default function WhatsAppConnection({readOnly = false}) {
         Vincula el número exclusivo de <b>Nexora</b> para confirmar pedidos contra entrega de Landings COD automáticamente (respuestas <b>SÍ / NO</b>) y enviar comprobantes PDF.
       </p>
 
-      {data?.connected && <b>🟢 Número vinculado a Nexora: +{data.phone}</b>}
+      {data?.connected && <small>🟢 Número vinculado: +{data.phone}</small>}
+      <small>Confirmación COD & POS</small>
       {error && <p className="formError">{error}</p>}
       {data?.message && <p className="fine">{data.message}</p>}
 
@@ -100,12 +101,12 @@ export default function WhatsAppConnection({readOnly = false}) {
         <p className="fine">Solo un administrador puede conectar el número.</p>
       ) : (
         !readOnly && (
-          <div className="toolbar" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div className="toolbar whatsappToolbar">
             <button className="primary" disabled={busy} onClick={connect}>
-              {busy ? 'Generando QR…' : data?.connected ? 'Ver estado / QR' : 'Conectar WhatsApp QR'}
+              {busy ? 'Generando…' : data?.connected ? 'Ver QR' : 'Conectar QR'}
             </button>
             <button className="outline" disabled={busy} onClick={resetAndNewQr}>
-              {data?.connected ? 'Cambiar Número' : 'Nuevo QR Limpio'}
+              {data?.connected ? 'Cambiar N°' : 'Nuevo QR'}
             </button>
             {data?.connected && (
               <button className="outline" disabled={busy} onClick={disconnect}>
@@ -117,7 +118,7 @@ export default function WhatsAppConnection({readOnly = false}) {
       )}
 
       <details className="fine">
-        <summary>¿Cómo funciona la confirmación automática en Nexora?</summary>
+        <summary>Confirmación COD & POS · ¿Cómo funciona?</summary>
         <p>
           1. Escanea el QR con el WhatsApp que usarás en esta plataforma.<br />
           2. Cuando entra un pedido COD desde tus landings, Nexora envía el mensaje de confirmación al cliente.<br />

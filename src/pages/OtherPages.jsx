@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, Users, ScanBarcode, CheckCircle2, Sparkles, Database, ShieldCheck, KeyRound, Cable } from 'lucide-react';
+import { Bot, Users, ScanBarcode } from 'lucide-react';
 import PlatformLogo from '../components/PlatformLogo';
 import { readApiView, api } from '../services/api';
 import DropiWebConnection from '../components/DropiWebConnection';
@@ -7,7 +7,6 @@ import WhatsAppConnection from '../components/WhatsAppConnection';
 import JumpsellerPreparationConnection from '../components/JumpsellerPreparationConnection';
 import DropiConnection from '../components/DropiConnection';
 import { usePolling } from '../services/usePolling';
-import FactoConnection from '../components/FactoConnection';
 import { BusinessSettings } from './Operations';
 import PlatformSales from '../components/PlatformSales';
 import { Heading } from '../components/Common';
@@ -29,8 +28,10 @@ export function Integrations({ sales = [], products = [], toast }) {
     30000
   );
 
-  const hasCatalog = name =>
-    products.some(p => p.active && (p.external_codes?.some(c => c.platform === name) || (name === 'Jumpseller' && p.source_url?.includes('meibo.cl'))));
+  const hasCatalog = name => {
+    if (name === 'Jumpseller') return false;
+    return products.some(p => p.active && p.external_codes?.some(c => c.platform === name));
+  };
 
   return (
     <>
@@ -45,7 +46,10 @@ export function Integrations({ sales = [], products = [], toast }) {
         <WhatsAppConnection toast={toast} />
         {['Evolut', 'Dropea', 'Jumpseller', 'Walmart'].map(name => {
           const available = hasCatalog(name);
-          const connected = connections?.[name]?.connected || connections?.[name.toLowerCase()]?.state?.startsWith('connected');
+          const connected =
+            name === 'Jumpseller'
+              ? false
+              : connections?.[name]?.connected || connections?.[name.toLowerCase()]?.state?.startsWith('connected');
           const badge = available
             ? 'Catálogo disponible'
             : name === 'Walmart'
@@ -73,7 +77,7 @@ export function Integrations({ sales = [], products = [], toast }) {
               <PlatformLogo name={name} />
               <h3>{name}</h3>
               <p className="muted">Identificadores, precios y stock por canal vinculados al SKU maestro.</p>
-              <span className={'tag ' + (available || connected ? 'success' : connected === false ? 'warning' : 'neutral')}>
+              <span className={'tag ' + (available || connected ? 'success' : connected === false && name === 'Walmart' ? 'warning' : 'neutral')}>
                 {badge}
               </span>
               <p className="fine">{info}</p>
@@ -81,7 +85,7 @@ export function Integrations({ sales = [], products = [], toast }) {
           );
         })}
         <div className="panel">
-          <div className="channelBadge amber"><Cable size={20} /></div>
+          <PlatformLogo name="Mercado Libre" />
           <h3>Mercado Libre</h3>
           <p className="muted">Sincronización OAuth y notificaciones webhook en tiempo real.</p>
           <span className={'tag ' + (meli?.connected ? 'success' : 'neutral')}>
@@ -89,7 +93,6 @@ export function Integrations({ sales = [], products = [], toast }) {
           </span>
           <p className="fine">Vinculación de publicaciones con SKU maestro y alertas de venta.</p>
         </div>
-        <FactoConnection />
       </div>
       <PlatformSales orders={orders} sales={sales} products={products} />
     </>
@@ -183,7 +186,6 @@ export function Settings({ readOnly, toast }) {
         <DropiWebConnection readOnly={readOnly} toast={toast} />
         <WhatsAppConnection readOnly={readOnly} toast={toast} />
       </div>
-      <JumpsellerPreparationConnection readOnly={readOnly} toast={toast} />
       <details className="panel settingsAccordion">
         <summary>Información del sistema · Identidad de Nexora</summary>
         <div className="panel">
@@ -197,7 +199,7 @@ export function Settings({ readOnly, toast }) {
             ['Reserva de pedidos', 'Unidades apartadas para pedidos'],
             ['Colchón de seguridad', 'Referencia por producto · No aparta unidades'],
             ['Alerta de stock bajo', 'Umbral configurable por producto'],
-            ['Canales integrados', 'Landings COD, Jumpseller, Evolut, Dropi, Dropea, Walmart, POS'],
+            ['Canales integrados', 'Landings COD, Evolut, Dropi, Dropea, Walmart, Mercado Libre, POS'],
           ].map(([label, value]) => (
             <div className="item" key={label}>
               <b>{label}</b>
