@@ -1,0 +1,23 @@
+import React, { useState } from 'react';
+import { Heading, SearchBox, Modal, Field } from '../components/Common';
+import { api, date, money } from '../services/api';
+const platforms = ['Mercado Libre','Shopify','Falabella','Ripley','Facebook Marketplace','Dropi','Evolut','Dropea','Jumpseller','Manu'];
+export default function Mapping({ products, refresh, toast }) {
+  const [query, setQuery] = useState(''),[page,setPage]=useState(1), [selectedId, setSelectedId] = useState(null), [platform, setPlatform] = useState('Mercado Libre'), [code, setCode] = useState(''), [price,setPrice]=useState(''),[editing,setEditing]=useState(null),[origin, setOrigin] = useState('Registro manual'), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const selected = products.find(p => p.id === selectedId);
+  const filtered=products.filter(p=>p.active&&[p.name,p.sku,...Object.values(p.codes)].join(' ').toLowerCase().includes(query.toLowerCase()));
+  const pages=Math.max(1,Math.ceil(filtered.length/20)),current=Math.min(page,pages);
+  async function add(e) {
+    e.preventDefault(); 
+    setBusy(true); setError('');
+    try { await api(editing?`/codes/${editing}`:`/variants/${selected.id}/codes`, { method: editing?'PUT':'POST', body: { platform, code, origin,price:Number(price) } }); await refresh(); setCode('');setPrice('');setEditing(null); toast('Asignación guardada'); } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+  async function remove(c) {
+    if (!confirm(`¿Eliminar asociación ${c.platform}: ${c.code}?`)) return;
+    try { await api(`/codes/${c.id}`, { method: 'DELETE' }); await refresh(); toast('Asociación eliminada'); } catch (e) { setError(e.message); }
+  }
+  return <><Heading eyebrow="IDENTIFICADOR ÚNICO" title="SKU maestro Nexora" subtitle="Un producto centralizado, múltiples códigos asociados. Sincronización multi-marketplace y dropshipping."/><div className="panel"><div className="toolbar"><SearchBox value={query} onChange={q=>{setQuery(q);setPage(1);}} placeholder="Filtrar por producto o SKU"/></div><div className="tableWrap"><table><thead><tr><th>SKU maestro</th><th>Producto</th>{platforms.map(x => <th key={x}>{x}</th>)}<th>Acción</th></tr></thead><tbody>{filtered.slice((current-1)*20,current*20).map(p => <tr key={p.id}><td><b>{p.sku}</b></td><td>{p.name}<small>{p.attributes}</small></td>{platforms.map(x => <td key={x}>{p.codes[x] || 'Sin asociación'}{p.codes[x]&&<small>{p.external_codes.find(c=>c.platform===x)?.price!=null?money(p.external_codes.find(c=>c.platform===x).price):'Precio pendiente'}</small>}</td>)}<td><button className="link" onClick={() => { setSelectedId(p.id); setError('');setEditing(null);setCode('');setPrice(''); }}>Ver / asociar</button></td></tr>)}</tbody></table></div><div className="pagination"><button className="outline" disabled={current===1} onClick={()=>setPage(current-1)}>Anterior</button><span>{filtered.length} variantes · Página {current} de {pages}</span><button className="outline" disabled={current===pages} onClick={()=>setPage(current+1)}>Siguiente</button></div></div>{selected && <Modal title={selected.sku} onClose={() => setSelectedId(null)}><p>{selected.name} · {selected.attributes}</p><p className="fine">ID interno de producto: {selected.product_id}<br/>ID de variante: {selected.id}</p>{selected.external_codes.map(c => <div className="item" key={c.id}><div className="grow"><b>{c.platform}: {c.code}</b><small>Precio: {c.price!=null?money(c.price):'Pendiente'}</small><small>{date(c.created_at)} · {c.origin}</small></div><button className="link" onClick={()=>{setEditing(c.id);setPlatform(c.platform);setCode(c.code);setOrigin(c.origin);setPrice(c.price??'');}}>Editar precio</button><button className="link" onClick={() => remove(c)}>Eliminar</button></div>)}<form onSubmit={add}><label className="field">Plataforma<select disabled={!!editing} value={platform} onChange={e => setPlatform(e.target.value)}>{platforms.map(x => <option key={x}>{x}</option>)}</select></label><Field label="Código externo" disabled={!!editing} required value={code} onChange={e => setCode(e.target.value)}/><Field label="Precio en esta plataforma (CLP)" type="number" min="0" step="1" required value={price} onChange={e=>setPrice(e.target.value)}/><Field label="Origen / trazabilidad" required value={origin} onChange={e => setOrigin(e.target.value)}/>{error && <p role="alert" className="formError">{error}</p>}<div className="formActions"><button className="primary" disabled={busy}>{busy?'Guardando…':editing?'Guardar precio':'Asociar código y precio'}</button>{editing&&<button type="button" className="outline" onClick={()=>{setEditing(null);setCode('');setPrice('');}}>Nueva asignación</button>}</div></form></Modal>}</>;
+}
+
+
+

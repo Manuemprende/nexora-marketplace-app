@@ -1,0 +1,2 @@
+CREATE TABLE publication_attempts(id TEXT PRIMARY KEY,variant_id TEXT NOT NULL REFERENCES variants(id),platform TEXT NOT NULL,actor_id TEXT REFERENCES users(id),status TEXT NOT NULL CHECK(status IN ('running','accepted','error','uncertain','blocked')),started_at TEXT NOT NULL,finished_at TEXT,http_status INTEGER,remote_id TEXT NOT NULL DEFAULT '',message TEXT NOT NULL DEFAULT '',request_summary TEXT NOT NULL,image_url TEXT NOT NULL DEFAULT '');
+CREATE INDEX publication_attempts_variant_date ON publication_attempts(variant_id,started_at);

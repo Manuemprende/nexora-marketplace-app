@@ -1,0 +1,14 @@
+CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE COLLATE NOCASE, password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('admin','packer')), active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL);
+CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', image_url TEXT NOT NULL DEFAULT '', source_url TEXT NOT NULL DEFAULT '', is_demo INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE variants (id TEXT PRIMARY KEY, product_id TEXT NOT NULL REFERENCES products(id), meibo_sku TEXT NOT NULL UNIQUE COLLATE NOCASE, attributes TEXT NOT NULL DEFAULT '', price INTEGER NOT NULL CHECK(price >= 0), active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE external_codes (id TEXT PRIMARY KEY, variant_id TEXT NOT NULL REFERENCES variants(id), platform TEXT NOT NULL CHECK(platform IN ('Dropi','Evolut','Dropea','Jumpseller')), code TEXT NOT NULL COLLATE NOCASE, origin TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(platform,code), UNIQUE(variant_id,platform));
+CREATE TABLE inventory (variant_id TEXT PRIMARY KEY REFERENCES variants(id), on_hand INTEGER NOT NULL CHECK(on_hand >= 0), reserved INTEGER NOT NULL DEFAULT 0 CHECK(reserved >= 0 AND reserved <= on_hand));
+CREATE TABLE inventory_movements (id TEXT PRIMARY KEY, variant_id TEXT NOT NULL REFERENCES variants(id), type TEXT NOT NULL, delta INTEGER NOT NULL, before_qty INTEGER NOT NULL, after_qty INTEGER NOT NULL CHECK(after_qty >= 0), reason TEXT NOT NULL, actor_id TEXT NOT NULL REFERENCES users(id), reference_id TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE operations (request_id TEXT PRIMARY KEY, actor_id TEXT NOT NULL REFERENCES users(id), fingerprint TEXT NOT NULL, result_json TEXT NOT NULL);
+CREATE TABLE sales (id TEXT PRIMARY KEY, actor_id TEXT NOT NULL REFERENCES users(id), total INTEGER NOT NULL CHECK(total >= 0), created_at TEXT NOT NULL);
+CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT NOT NULL REFERENCES sales(id), variant_id TEXT NOT NULL REFERENCES variants(id), name TEXT NOT NULL, sku TEXT NOT NULL, qty INTEGER NOT NULL CHECK(qty > 0), price INTEGER NOT NULL CHECK(price >= 0));
+CREATE INDEX variants_product ON variants(product_id);
+CREATE INDEX codes_lookup ON external_codes(code);
+CREATE INDEX movements_variant_date ON inventory_movements(variant_id,created_at);
+CREATE INDEX products_name ON products(name);

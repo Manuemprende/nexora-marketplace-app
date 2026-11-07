@@ -1,0 +1,134 @@
+{
+  "$schema": "./schema.json",
+  "templateVersion": "1.0.0",
+  "deployment": {
+    "slug": "destornillador-pro",
+    "subdomain": "taladro.wentixai.digital",
+    "nexoraApiUrl": "https://nexora.wentixai.cyou/api/orders",
+    "nexoraStockUrl": "https://nexora.wentixai.cyou/api/stock",
+    "active": true
+  },
+  "product": {
+    "sku": "NEX-00331",
+    "dropi_id": 33369,
+    "name": "Kit Destornillador Eléctrico 46 en 1 Pro",
+    "headline": "¡50% OFF SOLO DURANTE LA TRANSMISIÓN + ENVÍO GRATIS!",
+    "image": "https://images.unsplash.com/photo-1504148455328-c376907d081c?w=600&auto=format&fit=crop&q=80",
+    "stock": 14,
+    "rating": 4.9,
+    "reviewsCount": 182,
+    "currency": "CLP",
+    "variants": [
+      {
+        "id": "color",
+        "name": "Color",
+        "options": ["Negro Carbón", "Naranja Industrial"]
+      }
+    ],
+    "features": [
+      "🚚 Envío GRATIS y Pago Contra Entrega en todo Chile",
+      "⚡ Batería recargable USB de alta duración",
+      "💡 Luz LED frontal incorporada para zonas oscuras",
+      "🛡️ 30 días de garantía directa ante fallas de fábrica"
+    ]
+  },
+  "packs": [
+    {
+      "id": "pack-1",
+      "qty": 1,
+      "title": "1 Unidad (Uso Personal)",
+      "price": 19990,
+      "originalPrice": 29990,
+      "badge": "Envío Gratis",
+      "savings": "$10.000",
+      "popular": false
+    },
+    {
+      "id": "pack-2",
+      "qty": 2,
+      "title": "Pack 2 Unidades (Familiar / Taller)",
+      "price": 32990,
+      "originalPrice": 59980,
+      "badge": "MÁS VENDIDO - Ahorra $26.990",
+      "savings": "$26.990",
+      "popular": true
+    },
+    {
+      "id": "pack-3",
+      "qty": 3,
+      "title": "Mega Pack 3 Unidades (Mejor Precio)",
+      "price": 44990,
+      "originalPrice": 89970,
+      "badge": "MEJOR OFERTA",
+      "savings": "$44.980",
+      "popular": false
+    }
+  ],
+  "live": {
+    "id": "live-taladro-pro",
+    "title": "🔴 DEMO EN VIVO: Cómo desarmar y reparar cualquier artefacto en 2 minutos",
+    "hostName": "Rodrigo - Herramientas Pro",
+    "hostAvatar": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
+    "videoType": "mp4",
+    "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-vertical-portrait-of-a-woman-posing-for-the-camera-41801-large.mp4",
+    "posterUrl": "https://images.unsplash.com/photo-1504148455328-c376907d081c?w=800&auto=format&fit=crop&q=80",
+    "initialViewers": 248,
+    "initialLikes": 3820
+  },
+  "whatsapp": {
+    "enabled": true,
+    "phone": "56912345678",
+    "keyword": "QUIERO_EL_KIT_46_EN_1",
+    "messageTemplate": "¡Hola! Vi el Live de Wentix y quiero confirmar mi pedido del *Kit Destornillador Eléctrico 46 en 1* con Pago Contra Entrega."
+  },
+  "tracking": {
+    "metaPixelId": "123456789012345",
+    "metaAccessToken": "",
+    "tiktokPixelId": "CXXXXXXXXXXXXX"
+  },
+  "bot": {
+    "enabled": true,
+    "name": "Asesor Wentix AI",
+    "avatar": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80",
+    "geminiApiKey": "",
+    "groqApiKey": "",
+    "systemPrompt": "Eres el asesor técnico y comercial oficial del Live de Wentix. Tu único trabajo es responder dudas de este producto específico y cerrar la venta con Pago Contra Entrega en Chile. Respuestas cortas (máximo 2 a 3 líneas), amables, con modismos chilenos sutiles y profesionales. Siempre recalca: Envío gratis, pagas al recibir con Blue Express o Starken, y garantía de 30 días.",
+    "faq": [
+      {
+        "keywords": ["envio", "envío", "despacho", "cuanto tarda", "cuánto tarda", "demora"],
+        "answer": "¡Hola! El envío es 100% GRATIS a todo Chile. Despachamos con Blue Express y te llega entre 24 a 48 hrs hábiles en RM y hasta 72 hrs en regiones 🚚📦"
+      },
+      {
+        "keywords": ["pago", "pagar", "contraentrega", "tarjeta", "efectivo"],
+        "answer": "¡Total tranquilidad! Cuentas con PAGO CONTRA ENTREGA. Pides ahora en el botón verde y le pagas al repartidor en efectivo o transferencia al recibir en tu puerta 🛡️💵"
+      },
+      {
+        "keywords": ["garantia", "garantía", "falla", "devolucion", "devolución"],
+        "answer": "¡Tiene 30 días de garantía directa! Si el producto presenta cualquier defecto de fábrica te lo cambiamos de inmediato sin costo adicional ✅"
+      },
+      {
+        "keywords": ["puntas", "que incluye", "qué incluye", "caja", "maletin", "maletín"],
+        "answer": "¡Viene completo! Incluye el destornillador recargable, 46 puntas de acero templado, extensor flexible, cable de carga USB y maletín rígido de transporte 🧰⚡"
+      },
+      {
+        "keywords": ["stock", "queda", "quedan", "hay"],
+        "answer": "¡Quedan pocas unidades en bodega Santiago para despacho prioritario hoy! Te sugiero presionar 'Comprar' abajo antes de que se agoten los cupos con envío gratis 🔥"
+      }
+    ]
+  },
+  "socialProof": {
+    "simulatedPurchases": [
+      { "name": "Matías González", "city": "Maipú", "time": "hace 2 min" },
+      { "name": "Camila Soto", "city": "Concepción", "time": "hace 4 min" },
+      { "name": "Rodrigo Valenzuela", "city": "La Florida", "time": "hace 6 min" },
+      { "name": "Ignacio Pérez", "city": "Viña del Mar", "time": "hace 9 min" },
+      { "name": "Francisca Muñoz", "city": "Antofagasta", "time": "hace 11 min" }
+    ],
+    "simulatedComments": [
+      { "author": "Claudia R.", "message": "Me llegó ayer a San Bernardo, es súper firme y la batería dura un montón 👏", "timeSec": 6 },
+      { "author": "Felipe M.", "message": "¿Viene con el extensor flexible para lugares estrechos?", "timeSec": 14 },
+      { "author": "Gonzalo T.", "message": "Pedí 2 para el taller, excelente relación precio calidad 🔥", "timeSec": 22 },
+      { "author": "Andrea P.", "message": "¿Cuánto demora a Rancagua?", "timeSec": 35 }
+    ]
+  }
+}

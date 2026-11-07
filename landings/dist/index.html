@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="es-CL">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Live Shopping · Wentix</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+  <style>
+    @keyframes heartFloat {
+      0% { transform: translateY(0) scale(0.7) rotate(0deg); opacity: 1; }
+      100% { transform: translateY(-380px) scale(1.3) rotate(25deg); opacity: 0; }
+    }
+    .heart-float {
+      position: absolute;
+      pointer-events: none;
+      animation: heartFloat 2.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+      z-index: 45;
+    }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    
+    /* Smooth fade mask at top of chat feed so older messages fade out gently instead of being sliced in half */
+    .chat-fade-mask {
+      mask-image: linear-gradient(to top, rgba(0,0,0,1) 82%, rgba(0,0,0,0) 100%);
+      -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,1) 82%, rgba(0,0,0,0) 100%);
+    }
+
+    @keyframes toastFade {
+      0% { opacity: 0; transform: translateY(-12px); }
+      15% { opacity: 1; transform: translateY(0); }
+      85% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-12px); }
+    }
+    .animate-toast {
+      animation: toastFade 2.4s ease forwards;
+    }
+  </style>
+</head>
+<body class="bg-black text-white antialiased overflow-hidden h-[100dvh] w-screen flex items-center justify-center select-none font-sans">
+  
+  <!-- Main Phone Container (Matches exact TikTok / Douyin Live format) -->
+  <main id="liveContainer" class="relative w-full h-[100dvh] max-w-md mx-auto bg-black overflow-hidden shadow-2xl flex flex-col justify-between">
+    
+    <!-- Dynamic Island (Top Notch) - Visible on desktop simulators, hidden on native mobile to avoid double notch -->
+    <div class="hidden sm:block absolute top-2.5 left-1/2 -translate-x-1/2 z-50 w-28 h-6 bg-black rounded-full pointer-events-none"></div>
+
+    <!-- 100% Fullscreen Background Video -->
+    <div id="mediaLayer" class="absolute inset-0 w-full h-full z-0 overflow-hidden bg-neutral-950 cursor-pointer">
+      <video id="liveVideo" autoplay loop playsinline muted class="w-full h-full object-cover"></video>
+      <img id="fallbackImg" class="hidden w-full h-full object-cover" alt="Live Stream" />
+      <div class="absolute inset-0 bg-gradient-to-b from-black/70 via-transparent to-black/85 pointer-events-none"></div>
+    </div>
+
+    <!-- Floating Hearts Layer -->
+    <div id="heartsLayer" class="absolute inset-0 pointer-events-none overflow-hidden z-40"></div>
+
+    <!-- Feedback Toast Layer -->
+    <div id="toastLayer" class="absolute top-16 left-1/2 -translate-x-1/2 z-50 pointer-events-none flex flex-col items-center gap-2"></div>
+
+    <!-- ================= TOP HEADER SECTION ================= -->
+    <div class="relative z-30 pt-6 sm:pt-8 px-2.5 sm:px-3 flex flex-col gap-2 pointer-events-none">
+      
+      <!-- Top Host Row -->
+      <div class="flex items-center justify-between">
+        
+        <!-- Host Profile Card -->
+        <div class="flex items-center gap-2 bg-black/50 backdrop-blur-md pl-1 pr-3 py-1 rounded-full border border-white/15 pointer-events-auto shadow-lg">
+          <!-- Avatar with 'V' / Host Image -->
+          <div class="relative w-8 h-8 rounded-full overflow-hidden bg-neutral-900 border-2 border-orange-500/80 flex items-center justify-center shrink-0">
+            <span id="hostInitial" class="font-black text-white text-sm">V</span>
+            <img id="hostImg" class="hidden absolute inset-0 w-full h-full object-cover" alt="Host" />
+          </div>
+
+          <!-- Name & Details -->
+          <div class="flex flex-col">
+            <div class="flex items-center gap-1.5">
+              <span id="hostName" class="font-extrabold text-xs text-white tracking-wide">Valentina</span>
+              <!-- Verified Cyan Badge -->
+              <svg class="w-3.5 h-3.5 text-[#00d2ff] fill-current" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+              <!-- + SEGUIR Button -->
+              <button id="followBtn" class="bg-[#ff0055] hover:bg-[#e6004c] text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ml-1 active:scale-95 transition">
+                + SEGUIR
+              </button>
+            </div>
+            
+            <div class="flex items-center gap-2 text-[10px] text-white/80 font-medium">
+              <span class="flex items-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                <span>En Vivo (<span id="liveTimer">01:59</span>) - Demo</span>
+              </span>
+              <span class="text-white/40">·</span>
+              <span class="text-white/90 font-bold">Reproducir</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mute / Unmute Button -->
+        <button id="muteBtn" class="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-black/50 backdrop-blur-md border border-white/20 flex items-center justify-center text-white pointer-events-auto shadow-lg active:scale-90 transition">
+          <svg id="iconMuted" class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+          <svg id="iconUnmuted" class="hidden w-4 h-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+        </button>
+      </div>
+
+      <!-- Promo Banner Capsule -->
+      <div class="self-center pointer-events-auto">
+        <div class="bg-gradient-to-r from-[#ff0055] via-[#ff4500] to-[#ff9900] text-white text-[10.5px] sm:text-[11px] font-black px-3.5 sm:px-4 py-1.5 rounded-full shadow-[0_4px_20px_rgba(255,0,85,0.45)] flex items-center gap-1.5 tracking-wider uppercase border border-white/20">
+          <span>⚡</span>
+          <span id="promoHeadline">OFERTA EXCLUSIVA LIVE - 50% OFF + ENVÍO GRATIS</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= RIGHT SIDEBAR ACTIONS (TIKTOK / DOUYIN LIVE POSITION, LOWERED) ================= -->
+    <div class="absolute right-2 sm:right-3 bottom-[148px] sm:bottom-[154px] z-30 flex flex-col items-center gap-2 sm:gap-2.5 pointer-events-auto">
+      
+      <!-- 1. Like Heart Button -->
+      <div class="flex flex-col items-center gap-0.5">
+        <button id="actionLikeBtn" class="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-black/40 backdrop-blur-md border border-white/15 flex items-center justify-center text-[#ff3366] shadow-lg active:scale-125 transition cursor-pointer" title="Me gusta">
+          <svg class="w-5 h-5 fill-[#ff3366]" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+        </button>
+        <span id="likesCountText" class="text-[10.5px] sm:text-[11px] font-extrabold text-white drop-shadow">14.852</span>
+      </div>
+
+      <!-- 2. Share Button (Copies Link to Clipboard) -->
+      <div class="flex flex-col items-center gap-0.5">
+        <button id="actionShareBtn" class="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-black/40 backdrop-blur-md border border-white/15 flex items-center justify-center text-white shadow-lg active:scale-95 transition cursor-pointer" title="Compartir Live">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
+        <span class="text-[9.5px] sm:text-[10px] font-extrabold text-white/90 drop-shadow">Compartir</span>
+      </div>
+
+      <!-- 3. WhatsApp Direct Button -->
+      <div class="flex flex-col items-center gap-0.5">
+        <button id="actionWaBtn" class="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#25D366] flex items-center justify-center text-white shadow-[0_0_15px_rgba(37,211,102,0.4)] active:scale-95 transition cursor-pointer" title="Contactar por WhatsApp">
+          <svg class="w-5 h-5 sm:w-6 sm:h-6 fill-white" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
+        </button>
+        <span class="text-[9.5px] sm:text-[10px] font-black text-[#25D366]">WhatsApp</span>
+      </div>
+
+      <!-- 4. Tienda / Formulario Comprar Button -->
+      <div class="flex flex-col items-center gap-0.5">
+        <button id="actionStoreBtn" class="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-gradient-to-tr from-[#ff0055] to-[#ff5500] flex items-center justify-center text-white shadow-[0_0_15px_rgba(255,0,85,0.45)] border border-white/20 active:scale-95 transition cursor-pointer" title="Abrir Tienda / Comprar">
+          <svg class="w-5 h-5 fill-white" viewBox="0 0 24 24"><path d="M19 6h-2c0-2.76-2.24-5-5-5S7 3.24 7 6H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-7-3c1.66 0 3 1.34 3 3H9c0-1.66 1.34-3 3-3zm7 17H5V8h14v12zm-7-8c-1.66 0-3-1.34-3-3H7c0 2.76 2.24 5 5 5s5-2.24 5-5h-2c0 1.66-1.34 3-3 3z"/></svg>
+        </button>
+        <span class="text-[9.5px] sm:text-[10px] font-black text-[#ff88aa]">Comprar</span>
+      </div>
+
+    </div>
+
+    <!-- ================= BOTTOM SECTION: CHAT + PIN + INPUT (STRICT VERTICAL FLOW) ================= -->
+    <div id="bottomSection" class="relative z-30 px-2.5 sm:px-3 pb-2.5 sm:pb-3 flex flex-col justify-end w-full pointer-events-none">
+      
+      <!-- Live Chat Feed (Strictly left column max-w-[68%], Never overlaps sidebar buttons) -->
+      <div id="chatFeed" class="chat-fade-mask w-full max-h-[230px] sm:max-h-[280px] max-w-[68%] overflow-y-auto no-scrollbar flex flex-col justify-end gap-1.5 mb-2 pointer-events-auto">
+        
+        <!-- Bubble 1: Question with Highlighted Username -->
+        <div class="chat-bubble self-start bg-black/25 backdrop-blur-sm border border-white/10 rounded-2xl px-2.5 sm:px-3 py-1.5 text-xs text-white max-w-full shadow-sm">
+          <span class="text-white font-black text-[12px] sm:text-[12.5px] tracking-wide drop-shadow-sm">marcelo_valenz:</span> <span class="text-white/85 font-normal text-[11px] sm:text-[11.5px]">¿Sirve para anteojos ópticos y joyas de plata?</span>
+        </div>
+
+        <!-- Bubble 2: Buyer Alert (Green Capsule with Highlighted Name) -->
+        <div class="chat-bubble self-start bg-[#0d2818]/45 backdrop-blur-sm border border-[#00c977]/35 rounded-full px-2.5 sm:px-3 py-1 text-xs text-white max-w-full flex items-center gap-1.5 shadow-sm">
+          <svg class="w-3.5 h-3.5 text-[#00c977] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+          <span class="text-white/90 truncate">
+            <span class="text-white font-black text-[11.5px] sm:text-[12px]">Javiera M.</span> <span class="text-white/80 font-normal">compró</span> <span class="text-[#00c977] font-black">2x Pack Dúo</span> <span class="text-white/60 font-normal">(Temuco)</span>
+          </span>
+        </div>
+
+        <!-- Bubble 3: Payment Question with Highlighted Username -->
+        <div class="chat-bubble self-start bg-black/25 backdrop-blur-sm border border-white/10 rounded-2xl px-2.5 sm:px-3 py-1.5 text-xs text-white max-w-full shadow-sm">
+          <span class="text-white font-black text-[12px] sm:text-[12.5px] tracking-wide drop-shadow-sm">claudia.castro:</span> <span class="text-white/85 font-normal text-[11px] sm:text-[11.5px]">¿Se paga al repartidor cuando llegue a la casa?</span>
+        </div>
+
+        <!-- Bubble 4: Host Answer (Burgundy Box, Fully Visible Above Banner) -->
+        <div class="chat-bubble self-start bg-[#3d0c18]/40 backdrop-blur-sm border border-[#ff3366]/35 rounded-2xl p-2 sm:p-2.5 text-xs text-white shadow-md max-w-full">
+          <div class="flex items-center gap-1 mb-0.5">
+            <span>✨</span>
+            <span id="chatHostTag" class="text-[#ff5588] font-black text-[12px] sm:text-[12.5px] tracking-wide">Valentina (Host):</span>
+          </div>
+          <div id="chatHostText" class="text-white/95 font-medium text-[11px] sm:text-[11.5px] leading-relaxed">
+            ¡Hola Claudia! Sí, pagas en efectivo o transferencia cuando el repartidor toque tu timbre 🚚✨
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ================= PRODUCT PIN CARD (100% UNCLIPPED & RESPONSIVE) ================= -->
+      <div id="productPinCard" class="bg-[#121215]/95 backdrop-blur-xl border border-white/10 rounded-2xl p-2 sm:p-2.5 flex items-center justify-between gap-2.5 sm:gap-3 shadow-2xl pointer-events-auto mb-2">
+        
+        <!-- Thumbnail with -33% Badge & Reliable Fallback -->
+        <div id="pinThumbTrigger" class="relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden bg-neutral-900 border border-white/15 shrink-0 cursor-pointer">
+          <img id="pinProductImg" class="w-full h-full object-cover" alt="Producto" />
+          <span id="pinDiscountBadge" class="absolute top-0 right-0 bg-[#ff0055] text-white text-[9px] font-black px-1 py-0.2 rounded-bl">
+            -33%
+          </span>
+        </div>
+
+        <!-- Middle Info -->
+        <div id="pinInfoTrigger" class="flex flex-col flex-1 min-w-0 cursor-pointer">
+          <div class="flex items-center gap-1 text-[10.5px] sm:text-[11px] font-extrabold text-[#fbbf24]">
+            <span class="text-white/80 font-normal">Stock:</span>
+            <span id="pinStockText">10 unidades</span>
+          </div>
+          <h3 id="pinProductTitle" class="text-xs sm:text-sm font-black text-white truncate leading-tight mt-0.5">
+            Producto en Vivo
+          </h3>
+          <div class="flex items-center gap-1.5 sm:gap-2 mt-0.5 flex-wrap">
+            <span id="pinPriceText" class="text-xs sm:text-sm font-black text-[#ff3366] tabular-nums">$19.990</span>
+            <span id="pinCompareAtText" class="text-[10px] sm:text-[11px] text-white/40 line-through tabular-nums">$29.990</span>
+            <span class="bg-[#00c977]/20 border border-[#00c977]/40 text-[#00c977] text-[8.5px] sm:text-[9px] font-extrabold px-1.5 py-0.2 rounded-full whitespace-nowrap">
+              Envío Gratis
+            </span>
+          </div>
+        </div>
+
+        <!-- Buy Button (Green) -->
+        <button id="pinBuyBtn" class="bg-[#00c977] hover:bg-[#00b268] text-black font-black text-xs px-3 sm:px-3.5 py-2.5 sm:py-3 rounded-xl flex items-center gap-1.5 shrink-0 shadow-[0_0_15px_rgba(0,201,119,0.35)] active:scale-95 transition cursor-pointer">
+          <svg class="w-3.5 h-3.5 fill-black" viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+          <span>COMPRAR</span>
+        </button>
+      </div>
+
+      <!-- ================= BOTTOM INPUT BAR (CLEAN: ONLY INPUT + SEND) ================= -->
+      <div class="flex items-center gap-2 pointer-events-auto">
+        <!-- Input Field Pill (Takes Full Clean Width) -->
+        <form id="bottomChatForm" class="flex-1 flex items-center">
+          <input id="bottomChatInput" type="text" placeholder="Comenta o pregunta a la Host..." class="w-full bg-black/60 backdrop-blur-md border border-white/20 rounded-full px-3.5 sm:px-4 py-2 sm:py-2.5 text-xs text-white placeholder-white/50 focus:outline-none focus:border-[#00c977] transition shadow-inner" />
+        </form>
+
+        <!-- Blue Send Button with Plane -->
+        <button id="bottomSendBtn" class="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#1e60ff] hover:bg-[#1550e0] flex items-center justify-center text-white shrink-0 shadow-lg active:scale-95 transition cursor-pointer" title="Enviar mensaje">
+          <svg class="w-4 h-4 fill-white" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ================= QUICK CHECKOUT CHILE DRAWER (COMPACT 45% LIVE SHEET, ZERO SCROLL) ================= -->
+    <div id="checkoutDrawer" class="hidden absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center select-none transition-all">
+      <div class="w-full bg-[#111116]/95 backdrop-blur-2xl border-t border-white/20 rounded-t-[24px] p-3 sm:p-4 text-white shadow-[0_-10px_35px_rgba(0,0,0,0.85)] overflow-hidden">
+        
+        <!-- Header: Ultra-compact with Shield, Title, Price, and Close -->
+        <div class="flex items-center justify-between pb-2 border-b border-white/10 mb-2">
+          <div class="flex items-center gap-1.5">
+            <span class="text-emerald-400 text-sm">🛡️</span>
+            <h2 class="text-xs font-black uppercase tracking-wider text-white">PAGO CONTRAENTREGA</h2>
+            <span class="bg-emerald-500/20 text-emerald-400 text-[8.5px] font-black px-1.5 py-0.2 rounded border border-emerald-500/30">CHILE</span>
+            <span class="text-[10px] text-white/50 ml-1">· Pagas al recibir en tu puerta</span>
+          </div>
+          <button id="closeDrawerBtn" class="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/80 hover:text-white text-xs font-bold transition">✕</button>
+        </div>
+
+        <!-- 3-Column Promo Packs Selector (Zero vertical scroll, fits 3 packs side-by-side) -->
+        <div class="mb-2">
+          <div id="packsList" class="grid grid-cols-3 gap-1.5"></div>
+        </div>
+
+        <!-- Compact Delivery Form (3 clean rows, no excess fields, zero scroll) -->
+        <form id="orderForm" class="flex flex-col gap-2">
+          <!-- Row 1: Nombre (col 1) + WhatsApp (col 2) -->
+          <div class="grid grid-cols-2 gap-2">
+            <div class="relative">
+              <input id="inputName" required placeholder="Nombre y Apellido *" class="w-full bg-white/[0.05] border border-white/15 rounded-xl px-2.5 py-2 text-xs text-white placeholder-white/40 focus:border-emerald-500 focus:bg-white/[0.08] outline-none transition" />
+            </div>
+            <div class="relative flex items-center">
+              <span class="absolute left-2.5 text-xs pointer-events-none">🇨🇱</span>
+              <input id="inputPhone" type="tel" required placeholder="+56 9 1234 5678 *" class="w-full bg-white/[0.05] border border-white/15 rounded-xl pl-8 pr-2.5 py-2 text-xs text-white placeholder-white/40 focus:border-emerald-500 focus:bg-white/[0.08] outline-none transition" />
+            </div>
+          </div>
+
+          <!-- Row 2: Región (col 1) + Comuna (col 2) -->
+          <div class="grid grid-cols-2 gap-2">
+            <div class="relative">
+              <select id="selectRegion" class="w-full appearance-none bg-white/[0.05] border border-white/15 rounded-xl px-2.5 py-2 pr-6 text-xs text-white focus:border-emerald-500 outline-none cursor-pointer"></select>
+              <div class="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none text-white/40">
+                <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+              </div>
+            </div>
+            <div class="relative">
+              <select id="selectComuna" class="w-full appearance-none bg-white/[0.05] border border-white/15 rounded-xl px-2.5 py-2 pr-6 text-xs text-white focus:border-emerald-500 outline-none cursor-pointer"></select>
+              <div class="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none text-white/40">
+                <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Row 3: Dirección (Calle, Número, Depto) -->
+          <div class="relative">
+            <input id="inputAddress" required placeholder="Dirección de entrega (Calle, Número, Depto/Casa) *" class="w-full bg-white/[0.05] border border-white/15 rounded-xl px-3 py-2 text-xs text-white placeholder-white/40 focus:border-emerald-500 focus:bg-white/[0.08] outline-none transition" />
+          </div>
+
+          <!-- Submit Button: Compact & High Impact with Real-time Price -->
+          <button id="submitOrderBtn" type="submit" class="mt-1 w-full bg-gradient-to-r from-[#00c977] via-[#00e685] to-[#00c977] hover:brightness-110 text-black font-black py-2.5 sm:py-3 px-3 rounded-xl text-xs uppercase tracking-wider shadow-[0_4px_20px_rgba(0,201,119,0.4)] active:scale-95 transition cursor-pointer flex flex-col items-center justify-center">
+            <span class="flex items-center gap-1.5 font-black text-xs sm:text-sm">
+              <span>✅</span> CONFIRMAR PEDIDO CONTRAENTREGA
+            </span>
+            <span id="btnSublineText" class="text-[9.5px] text-black/75 font-extrabold tracking-normal">
+              Pagas al recibir · Envío Gratis 🚚
+            </span>
+          </button>
+        </form>
+
+      </div>
+    </div>
+  </main>
+
+  <!-- ================= SCRIPTS & BEHAVIOR ================= -->
+  <script>
+    const CHILE_REGIONS = [
+      { name: "Región Metropolitana", comunas: ["Santiago", "Maipú", "Puente Alto", "Las Condes", "La Florida", "Ñuñoa", "Providencia", "San Bernardo", "Pudahuel", "Quilicura", "Peñalolén", "Estación Central", "Recoleta", "Macul", "La Reina", "Colina", "Lampa", "Buin"] },
+      { name: "Valparaíso", comunas: ["Valparaíso", "Viña del Mar", "Quilpué", "Villa Alemana", "Concón", "San Antonio", "Quillota", "Los Andes", "San Felipe"] },
+      { name: "Biobío", comunas: ["Concepción", "Talcahuano", "San Pedro de la Paz", "Chiguayante", "Los Ángeles", "Coronel", "Hualpén", "Tomé"] },
+      { name: "Maule", comunas: ["Talca", "Curicó", "Linares", "Constitución", "Cauquenes", "Molina"] },
+      { name: "La Araucanía", comunas: ["Temuco", "Padre Las Casas", "Villarrica", "Pucón", "Angol", "Victoria"] },
+      { name: "O'Higgins", comunas: ["Rancagua", "Machalí", "San Fernando", "Rengo", "Santa Cruz"] },
+      { name: "Coquimbo", comunas: ["La Serena", "Coquimbo", "Ovalle", "Illapel"] },
+      { name: "Antofagasta", comunas: ["Antofagasta", "Calama", "Tocopilla", "Mejillones"] },
+      { name: "Los Lagos", comunas: ["Puerto Montt", "Osorno", "Puerto Varas", "Castro", "Ancud"] }
+    ];
+
+    const fmt = (n) => "$" + Number(n || 0).toLocaleString("es-CL");
+
+    function showToast(msg) {
+      const layer = document.getElementById("toastLayer");
+      const el = document.createElement("div");
+      el.className = "bg-neutral-900/90 backdrop-blur-md border border-white/20 px-3.5 py-1.5 rounded-full text-xs font-bold text-white shadow-xl animate-toast flex items-center gap-1.5";
+      el.innerHTML = msg;
+      layer.appendChild(el);
+      setTimeout(() => el.remove(), 2500);
+    }
+
+    function getSlug() {
+      const p = new URLSearchParams(window.location.search).get("p");
+      if (p) return p.toLowerCase().trim();
+      const parts = window.location.hostname.split(".");
+      if (parts.length >= 3 && !["www", "nexora", "app"].includes(parts[0])) return parts[0].toLowerCase();
+      return "taladro";
+    }
+
+    async function loadData(slug) {
+      const paths = [`/configs/${slug}.json`, `/api/landings/${slug}`, `https://nexora.wentixai.cyou/api/landings/${slug}`];
+      for (const p of paths) {
+        try {
+          const r = await fetch(p, { cache: "no-store" });
+          if (r.ok) return await r.json();
+        } catch {}
+      }
+      return null;
+    }
+
+    function spawnHeart(x) {
+      const layer = document.getElementById("heartsLayer");
+      const h = document.createElement("div");
+      h.className = "heart-float";
+      const colors = ["#ff0055", "#ff3366", "#ff5500", "#00c977", "#fbbf24", "#a855f7"];
+      const col = colors[Math.floor(Math.random() * colors.length)];
+      const size = Math.floor(Math.random() * 12) + 22;
+
+      const container = document.getElementById("liveContainer");
+      const rect = container ? container.getBoundingClientRect() : { width: window.innerWidth, left: 0 };
+      const rightBase = (rect.width - 48);
+      const posX = x !== undefined ? (x - rect.left) : (rightBase - Math.random() * 22);
+
+      h.style.left = `${Math.max(12, Math.min(rect.width - 40, posX))}px`;
+      h.style.bottom = "155px";
+      h.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="${col}"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`;
+      layer.appendChild(h);
+      setTimeout(() => h.remove(), 2200);
+    }
+
+    function scrollChatToBottom() {
+      const feed = document.getElementById("chatFeed");
+      if (feed) {
+        feed.scrollTop = feed.scrollHeight;
+      }
+    }
+
+    async function init() {
+      const slug = getSlug();
+      const cfg = await loadData(slug) || {
+        product: { name: "Masajeador V Face", price: 24990, compare_at_price: 40990, stock: 148, sku: "MAS-01" },
+        video: { stream_url: "https://assets.mixkit.co/videos/preview/mixkit-hands-of-a-carpenter-measuring-and-cutting-wood-42484-large.mp4" },
+        bot: { name: "Valentina (Host)" }
+      };
+
+      const p = cfg.product || {};
+      const live = cfg.live || {};
+      const v = cfg.video || {};
+
+      // Fill headline if present
+      if (p.headline) {
+        document.getElementById("promoHeadline").textContent = p.headline;
+      }
+
+      // Video & Poster with fallback
+      const defaultImg = "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=600&auto=format&fit=crop&q=80";
+      const poster = live.posterUrl || live.poster_url || p.image || p.image_url || p.featured_image || v.poster_url || defaultImg;
+      const streamUrl = live.videoUrl || live.stream_url || v.stream_url || v.video_url || cfg.video_url || "https://assets.mixkit.co/videos/preview/mixkit-vertical-portrait-of-a-woman-posing-for-the-camera-41801-large.mp4";
+
+      const video = document.getElementById("liveVideo");
+      const fallback = document.getElementById("fallbackImg");
+
+      if (streamUrl) {
+        video.src = streamUrl;
+        video.poster = poster;
+        video.play().catch(() => {});
+      } else {
+        video.classList.add("hidden");
+        fallback.src = poster;
+        fallback.classList.remove("hidden");
+      }
+
+      // Audio Toggle
+      const muteBtn = document.getElementById("muteBtn");
+      const iconMuted = document.getElementById("iconMuted");
+      const iconUnmuted = document.getElementById("iconUnmuted");
+      let isMuted = true;
+      muteBtn.onclick = () => {
+        isMuted = !isMuted;
+        video.muted = isMuted;
+        if (isMuted) {
+          iconMuted.classList.remove("hidden");
+          iconUnmuted.classList.add("hidden");
+        } else {
+          iconMuted.classList.add("hidden");
+          iconUnmuted.classList.remove("hidden");
+        }
+      };
+
+      // Double tap on media triggers hearts
+      let lastTap = 0;
+      document.getElementById("mediaLayer").addEventListener("touchend", (e) => {
+        const cur = Date.now();
+        if (cur - lastTap < 320) {
+          const t = e.changedTouches[0];
+          if (t) spawnHeart(t.clientX);
+        }
+        lastTap = cur;
+      });
+
+      // Product Pin Info (Populated Dynamically from Template Config)
+      const title = p.name || p.title || "Masajeador V Face";
+      const price = Number(p.price || 24990);
+      const compareAt = Number(p.compare_at_price || p.originalPrice || Math.round(price * 1.6));
+      const stock = p.stock || p.stock_initial || 148;
+      const discountPct = Math.round(((compareAt - price) / compareAt) * 100);
+
+      const prodImgEl = document.getElementById("pinProductImg");
+      prodImgEl.src = poster;
+      prodImgEl.onerror = () => { prodImgEl.src = defaultImg; };
+
+      document.getElementById("pinProductTitle").textContent = title;
+      document.getElementById("pinStockText").textContent = `${stock} unidades`;
+      document.getElementById("pinPriceText").textContent = fmt(price);
+      document.getElementById("pinCompareAtText").textContent = fmt(compareAt);
+      document.getElementById("pinDiscountBadge").textContent = `-${discountPct}%`;
+
+      // Host Name & Avatar
+      const hostRawName = live.hostName || cfg.bot?.name || "Valentina";
+      const hostCleanName = hostRawName.replace(" (Host)", "");
+      document.getElementById("hostName").textContent = hostCleanName;
+      document.getElementById("chatHostTag").textContent = `${hostCleanName} (Host):`;
+
+      const hostAvatar = live.hostAvatar || cfg.bot?.avatar;
+      if (hostAvatar) {
+        const hImg = document.getElementById("hostImg");
+        hImg.src = hostAvatar;
+        hImg.classList.remove("hidden");
+      } else {
+        document.getElementById("hostInitial").textContent = hostCleanName.charAt(0).toUpperCase();
+      }
+
+      // Drawer Open / Close
+      const drawer = document.getElementById("checkoutDrawer");
+      function openDrawer() { drawer.classList.remove("hidden"); }
+      function closeDrawer() { drawer.classList.add("hidden"); }
+
+      document.getElementById("pinBuyBtn").onclick = openDrawer;
+      document.getElementById("pinThumbTrigger").onclick = openDrawer;
+      document.getElementById("pinInfoTrigger").onclick = openDrawer;
+      document.getElementById("closeDrawerBtn").onclick = closeDrawer;
+      drawer.onclick = (e) => {
+        if (e.target === drawer) closeDrawer();
+      };
+
+      // Right Sidebar Action Buttons
+      let likes = Number(live.initialLikes || 14852);
+      document.getElementById("likesCountText").textContent = likes.toLocaleString("es-CL");
+      document.getElementById("actionLikeBtn").onclick = () => {
+        likes++;
+        document.getElementById("likesCountText").textContent = likes.toLocaleString("es-CL");
+        spawnHeart();
+        spawnHeart();
+      };
+
+      // Share Button (Copies Link)
+      document.getElementById("actionShareBtn").onclick = async () => {
+        try {
+          if (navigator.clipboard) {
+            await navigator.clipboard.writeText(window.location.href);
+          }
+          showToast("¡Enlace copiado al portapapeles! 🔗");
+        } catch {
+          showToast("¡Comparte este Live con tus amigos! 🚀");
+        }
+      };
+
+      // WhatsApp Button
+      document.getElementById("actionWaBtn").onclick = () => {
+        const msg = encodeURIComponent(`¡Hola ${hostCleanName}! Vi el Live de ${title} y quiero pedir con Pago Contraentrega.`);
+        window.open(`https://wa.me/56912345678?text=${msg}`, "_blank");
+      };
+
+      // Tienda / Comprar Button on Sidebar
+      document.getElementById("actionStoreBtn").onclick = openDrawer;
+
+      // ================= CHAT & CONVERSATIONAL BOT ENGINE =================
+      const chatFeed = document.getElementById("chatFeed");
+
+      function pruneChat() {
+        const bubbles = chatFeed.querySelectorAll(".chat-bubble");
+        if (bubbles.length > 18) {
+          bubbles[0].remove();
+        }
+      }
+
+      function appendComment({ username, text, isHost, isBuyer, buyerName, packName, city }) {
+        const div = document.createElement("div");
+        div.className = "chat-bubble self-start transition-all duration-300";
+
+        if (isBuyer) {
+          div.className += " bg-[#0d2818]/45 backdrop-blur-sm border border-[#00c977]/35 rounded-full px-2.5 sm:px-3 py-1 text-xs text-white max-w-full flex items-center gap-1.5 shadow-sm";
+          div.innerHTML = `
+            <svg class="w-3.5 h-3.5 text-[#00c977] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+            <span class="text-white/90 truncate">
+              <span class="text-white font-black text-[11.5px] sm:text-[12px]">${buyerName}</span> <span class="text-white/80 font-normal">compró</span> <span class="text-[#00c977] font-black">${packName}</span> <span class="text-white/60 font-normal">(${city})</span>
+            </span>
+          `;
+        } else if (isHost) {
+          div.className += " bg-[#3d0c18]/40 backdrop-blur-sm border border-[#ff3366]/35 rounded-2xl p-2 sm:p-2.5 text-xs text-white shadow-md max-w-full";
+          div.innerHTML = `
+            <div class="flex items-center gap-1 mb-0.5">
+              <span>✨</span>
+              <span class="text-[#ff5588] font-black text-[12px] sm:text-[12.5px] tracking-wide">${hostCleanName} (Host):</span>
+            </div>
+            <div class="text-white/95 font-medium text-[11px] sm:text-[11.5px] leading-relaxed">${text}</div>
+          `;
+        } else {
+          div.className += " bg-black/25 backdrop-blur-sm border border-white/10 rounded-2xl px-2.5 sm:px-3 py-1.5 text-xs text-white max-w-full shadow-sm";
+          div.innerHTML = `
+            <span class="text-white font-black text-[12px] sm:text-[12.5px] tracking-wide drop-shadow-sm">${username}:</span> <span class="text-white/85 font-normal text-[11px] sm:text-[11.5px]">${text}</span>
+          `;
+        }
+
+        chatFeed.appendChild(div);
+        pruneChat();
+        scrollChatToBottom();
+      }
+
+      // Conversational Bot Scripts Pool (Chilean context, natural questions & host engagement)
+      const BOT_CONVERSATIONS = [
+        { type: "user", username: "claudia_rm", text: "¿Hacen envíos a La Serena? 🚚" },
+        { type: "buyer", buyerName: "Roberto V.", packName: "Pack Dúo (2x)", city: "Maipú" },
+        { type: "host", text: "¡Totalmente! Despachamos gratis a todas las regiones de Chile por Starken y Blue Express 📦✨" },
+        { type: "user", username: "patricio_laser", text: "Me acaba de llegar hoy en Concepción, tremenda calidad 👏" },
+        { type: "host", text: "¿De qué comuna o ciudad nos están acompañando en el Live? ¡Comenten aquí abajo! 👇🔥" },
+        { type: "user", username: "felipe_r", text: "¿Se le puede pagar con transferencia al cartero?" },
+        { type: "buyer", buyerName: "Andrea C.", packName: "1x Uso Personal", city: "Viña del Mar" },
+        { type: "host", text: "¡Sí, Felipe! Puedes pagar en efectivo o con transferencia cuando toquen a tu puerta 🤝" },
+        { type: "user", username: "camilita_s", text: "¿El descuento del 50% es solo por hoy?" },
+        { type: "buyer", buyerName: "Gonzalo F.", packName: "Mega Pack (3x)", city: "Puente Alto" },
+        { type: "host", text: "Chicos, nos quedan muy poquitas unidades a este precio en bodega central ⚡" },
+        { type: "user", username: "matias.g", text: "Me llevé el pack de 2, regalé uno a mi hermano y le encantó" },
+        { type: "user", username: "daniela_p", text: "¿Tiene garantía si tiene algún detalle?" },
+        { type: "buyer", buyerName: "Daniela F.", packName: "Pack Dúo (2x)", city: "La Florida" },
+        { type: "host", text: "¡Garantía total de 30 días con cambio inmediato! Compren con 100% de tranquilidad 💎" }
+      ];
+
+      let botIdx = 0;
+      function triggerNextBotMessage() {
+        const item = BOT_CONVERSATIONS[botIdx % BOT_CONVERSATIONS.length];
+        botIdx++;
+
+        if (item.type === "buyer") {
+          appendComment({ isBuyer: true, buyerName: item.buyerName, packName: item.packName, city: item.city });
+        } else if (item.type === "host") {
+          appendComment({ isHost: true, text: item.text });
+        } else {
+          appendComment({ username: item.username, text: item.text });
+        }
+
+        if (Math.random() > 0.4) spawnHeart();
+
+        // Schedule next message between 4.5 and 7.5 seconds
+        const nextDelay = Math.floor(Math.random() * 3000) + 4500;
+        setTimeout(triggerNextBotMessage, nextDelay);
+      }
+      setTimeout(triggerNextBotMessage, 3500);
+
+      // Smart Host Response to User Messages
+      function respondToUser(userMsg) {
+        const lower = userMsg.toLowerCase();
+        let reply = "¡Gracias por tu consulta! Puedes tocar el botón COMPRAR y pedir con pago contraentrega en 1 minuto 🎁✨";
+
+        if (lower.includes("envio") || lower.includes("despacho") || lower.includes("llega") || lower.includes("demora") || lower.includes("region") || lower.includes("comuna")) {
+          reply = "¡Hola! Despachamos a todo Chile sin costo de envío. Tarda de 24 a 48 hrs en llegar a tu puerta 🚚💨";
+        } else if (lower.includes("pago") || lower.includes("contraentrega") || lower.includes("pagar") || lower.includes("tarjeta") || lower.includes("transferencia") || lower.includes("efectivo")) {
+          reply = "¡Exacto! No pagas nada por adelantado. Pagas en efectivo o transferencia cuando el repartidor llegue a tu casa 📦🤝";
+        } else if (lower.includes("garantia") || lower.includes("falla") || lower.includes("devolucion") || lower.includes("cambio")) {
+          reply = "¡Cuentas con 30 días de garantía directa! Si tienes cualquier problema te lo reemplazamos de inmediato 🙌";
+        } else if (lower.includes("precio") || lower.includes("cuanto") || lower.includes("oferta") || lower.includes("descuento") || lower.includes("vale")) {
+          reply = `¡El precio en vivo es de solo ${fmt(price)} con 50% de descuento y despacho gratis prioritario! 💎`;
+        } else if (lower.includes("hola") || lower.includes("buenas") || lower.includes("saludos")) {
+          reply = "¡Hola! Bienvenid@ al Live, aprovecha que estamos en los últimos minutos de la oferta exclusiva 🛍️🔥";
+        }
+
+        setTimeout(() => {
+          appendComment({ isHost: true, text: reply });
+        }, 1600);
+      }
+
+      // Chat input submit
+      function appendUserChat(text) {
+        const div = document.createElement("div");
+        div.className = "chat-bubble self-start bg-black/35 backdrop-blur-sm border border-[#00d2ff]/40 rounded-2xl px-2.5 sm:px-3 py-1.5 text-xs text-white max-w-full shadow-sm";
+        div.innerHTML = `<span class="text-[#00d2ff] font-black text-[12px] sm:text-[12.5px] tracking-wide drop-shadow-sm">Tú:</span> <span class="text-white font-medium text-[11px] sm:text-[11.5px]">${text}</span>`;
+        chatFeed.appendChild(div);
+        pruneChat();
+        scrollChatToBottom();
+        spawnHeart();
+        spawnHeart();
+        respondToUser(text);
+      }
+
+      function handleChatSend() {
+        const inp = document.getElementById("bottomChatInput");
+        const val = inp.value.trim();
+        if (!val) return;
+        appendUserChat(val);
+        inp.value = "";
+      }
+
+      document.getElementById("bottomChatForm").onsubmit = (e) => {
+        e.preventDefault();
+        handleChatSend();
+      };
+      document.getElementById("bottomSendBtn").onclick = handleChatSend;
+
+      // Ensure initial scroll
+      setTimeout(scrollChatToBottom, 150);
+      setTimeout(scrollChatToBottom, 500);
+
+      // ================= PACKS & CHECKOUT =================
+      const packs = cfg.packs || p.packs || [
+        { id: "pack-1", quantity: 1, title: "1 Unidad (Uso Personal)", subtitle: "Precio en Vivo", price: price, compare_at: compareAt, badge: "EN VIVO" },
+        { id: "pack-2", quantity: 2, title: "Pack Dúo (2x)", subtitle: "Más Vendido", price: Math.round(price * 1.7), compare_at: compareAt * 2, badge: "MÁS VENDIDO 🔥" },
+        { id: "pack-3", quantity: 3, title: "Mega Pack Familiar (3x)", subtitle: "Mayor Ahorro", price: Math.round(price * 2.3), compare_at: compareAt * 3, badge: "MEJOR OFERTA 💎" }
+      ];
+      let selectedPackIdx = 1;
+
+      // Populate drawer mini product summary
+      const drawerProdImg = document.getElementById("drawerProdImg");
+      if (drawerProdImg) {
+        drawerProdImg.src = poster;
+        drawerProdImg.onerror = () => { drawerProdImg.src = defaultImg; };
+      }
+      const drawerProdTitle = document.getElementById("drawerProdTitle");
+      if (drawerProdTitle) drawerProdTitle.textContent = title;
+
+      const packsList = document.getElementById("packsList");
+      function renderPacks() {
+        packsList.innerHTML = packs.slice(0, 3).map((pk, i) => {
+          const isSelected = selectedPackIdx === i;
+
+          // Clean short title for 3-column card
+          let shortTitle = "1 Unidad";
+          if (i === 1) shortTitle = "2 Unidades";
+          if (i === 2) shortTitle = "3 Unidades";
+          if (pk.title) {
+            if (pk.title.includes("2") || pk.title.toLowerCase().includes("dos") || pk.title.toLowerCase().includes("dúo")) shortTitle = "2 Unidades";
+            else if (pk.title.includes("3") || pk.title.toLowerCase().includes("tres") || pk.title.toLowerCase().includes("trío")) shortTitle = "3 Unidades";
+            else if (pk.title.includes("1") || pk.title.toLowerCase().includes("uno")) shortTitle = "1 Unidad";
+          }
+
+          let badgeText = "";
+          if (i === 1 || pk.is_popular) {
+            badgeText = "MÁS VENDIDO 🔥";
+          } else if (i === 2) {
+            badgeText = "MEJOR OFERTA 💎";
+          }
+
+          return `
+            <div data-i="${i}" class="pack-btn relative cursor-pointer p-2 sm:p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition-all ${
+              isSelected
+                ? 'border-2 border-emerald-500 bg-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
+                : 'border-white/10 bg-white/[0.04] hover:border-white/20'
+            }">
+              ${badgeText ? `<span class="absolute -top-2 left-1/2 -translate-x-1/2 bg-gradient-to-r from-[#ff0055] to-[#ff5500] text-white text-[7.5px] sm:text-[8px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-wider shadow whitespace-nowrap">${badgeText}</span>` : ''}
+              <div class="text-[11px] sm:text-xs font-black text-white mt-0.5 truncate w-full">${shortTitle}</div>
+              <div class="text-xs sm:text-sm font-black text-emerald-400 tabular-nums">${fmt(pk.price)}</div>
+              ${(pk.compare_at && pk.compare_at > pk.price) ? `<div class="text-[9px] text-white/40 line-through tabular-nums">${fmt(pk.compare_at)}</div>` : `<div class="text-[8.5px] text-white/30">Envío Gratis</div>`}
+            </div>
+          `;
+        }).join("");
+
+        // Update button subline and drawer summary
+        const curPack = packs[selectedPackIdx] || packs[0];
+        const btnSub = document.getElementById("btnSublineText");
+        if (btnSub) btnSub.textContent = `Pagas ${fmt(curPack.price)} al recibir · Envío Gratis 🚚`;
+
+        document.querySelectorAll(".pack-btn").forEach(el => {
+          el.onclick = () => {
+            selectedPackIdx = Number(el.dataset.i);
+            renderPacks();
+          };
+        });
+      }
+      renderPacks();
+
+      // Comunas Chilean Dropdown
+      const regSel = document.getElementById("selectRegion");
+      const comSel = document.getElementById("selectComuna");
+      regSel.innerHTML = CHILE_REGIONS.map(r => `<option value="${r.name}">${r.name}</option>`).join("");
+      function updateComunas() {
+        const found = CHILE_REGIONS.find(r => r.name === regSel.value) || CHILE_REGIONS[0];
+        comSel.innerHTML = found.comunas.map(c => `<option value="${c}">${c}</option>`).join("");
+      }
+      regSel.onchange = updateComunas;
+      updateComunas();
+
+      // Submit Order
+      document.getElementById("orderForm").onsubmit = async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById("submitOrderBtn");
+        btn.disabled = true;
+        btn.innerHTML = `
+          <span class="flex items-center gap-2">
+            <svg class="animate-spin h-4 w-4 text-black" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            ENVIANDO PEDIDO A BODEGA...
+          </span>
+        `;
+
+        let rawPhone = document.getElementById("inputPhone").value.trim().replace(/[^0-9]/g, "");
+        if (rawPhone.startsWith("56")) rawPhone = "+" + rawPhone;
+        else if (rawPhone.startsWith("9")) rawPhone = "+56" + rawPhone;
+        else rawPhone = "+569" + rawPhone;
+
+        const pk = packs[selectedPackIdx] || packs[0];
+        const payload = {
+          channel: "LIVE_LANDING_COD",
+          subdomain: slug,
+          customer_name: document.getElementById("inputName").value.trim(),
+          customer_phone: rawPhone,
+          shipping_address: document.getElementById("inputAddress").value.trim(),
+          city: comSel.value,
+          region: regSel.value,
+          notes: (document.getElementById("inputNotes")?.value || "").trim(),
+          total_price: pk.price,
+          items: [{ sku: p.sku || `NEX-${slug.toUpperCase()}`, quantity: pk.quantity || pk.qty || 1, title: `${title} (${pk.title})`, unit_price: Math.round(pk.price / (pk.quantity || pk.qty || 1)) }]
+        };
+
+        try {
+          const res = await fetch("https://nexora.wentixai.cyou/api/orders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Wentix-Source": "live-landing-cod" },
+            body: JSON.stringify(payload)
+          });
+          const ord = await res.json();
+          if (window.confetti) window.confetti({ particleCount: 90, spread: 75, origin: { y: 0.6 } });
+
+          drawer.innerHTML = `
+            <div class="p-6 text-center">
+              <div class="w-14 h-14 rounded-full bg-emerald-500/20 border-2 border-emerald-500 text-emerald-400 mx-auto flex items-center justify-center text-2xl mb-3 shadow-[0_0_25px_rgba(16,185,129,0.4)]">
+                ✓
+              </div>
+              <h3 class="text-base font-black text-white">¡Pedido Contraentrega Confirmado!</h3>
+              <p class="text-xs text-white/70 mt-1">Tu orden <b class="text-emerald-400">#${ord.order_number || 'RECIBIDA'}</b> ha sido enviada a bodega.</p>
+              
+              <div class="my-4 bg-white/[0.04] border border-white/10 rounded-2xl p-3 text-left space-y-1.5 text-xs text-white/80">
+                <div class="flex justify-between"><span>Producto:</span> <b class="text-white">${title} (${pk.title})</b></div>
+                <div class="flex justify-between"><span>Total a Pagar en Puerta:</span> <b class="text-emerald-400 font-black">${fmt(pk.price)}</b></div>
+                <div class="flex justify-between"><span>Destino:</span> <b class="text-white">${comSel.value}, ${regSel.value}</b></div>
+                <div class="flex justify-between"><span>Método:</span> <span class="text-emerald-300 font-bold">Efectivo o Transferencia al cartero</span></div>
+              </div>
+
+              <p class="text-[11px] text-white/50">Te contactaremos por WhatsApp antes de entregar 📦</p>
+
+              <button onclick="document.getElementById('checkoutDrawer').classList.add('hidden')" class="mt-4 w-full bg-emerald-500 hover:bg-emerald-400 text-black font-black py-3 rounded-xl text-xs uppercase tracking-wider transition cursor-pointer">
+                Volver a la Transmisión
+              </button>
+            </div>
+          `;
+        } catch {
+          btn.disabled = false;
+          btn.textContent = "REINTENTAR PEDIDO CONTRAENTREGA";
+        }
+      };
+    }
+
+    init();
+  </script>
+</body>
+</html>

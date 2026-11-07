@@ -1,0 +1,1 @@
+CREATE TABLE publication_drafts(variant_id TEXT NOT NULL REFERENCES variants(id),platform TEXT NOT NULL,payload TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'draft',remote_id TEXT,error TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL,PRIMARY KEY(variant_id,platform));

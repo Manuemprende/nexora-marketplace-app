@@ -1,0 +1,13 @@
+import {validRut,normalizeRut,canonicalRut} from './rut.mjs';
+import {customerPhone} from './phone.mjs';
+import {GUEST_CUSTOMER_ID,isGuestCustomer} from './customer-identity.mjs';
+import {uuid,now} from './database.mjs';import {text,fail} from './service.mjs';
+export function customers(db,query=''){const q=text(query,'RUT',40);if(!validRut(q))return [];return db.prepare("SELECT id,name,rut,address,giro,city,email,phone FROM customers WHERE upper(replace(replace(replace(replace(rut,'.',''),'-',''),' ',''),char(9),''))=? ORDER BY name LIMIT 20").all(normalizeRut(q));}
+function validateCustomer(db,input,id=null){const name=text(input.name,'Nombre o razón social',200,true),rut=canonicalRut(text(input.rut??'','RUT',30)),address=text(input.address??'','Dirección',300),giro=text(input.giro??'','Giro',200),city=text(input.city??'','Comuna',200),email=text(input.email??'','Correo',254),phone=customerPhone(input.phone);if(rut&&!validRut(rut))fail(400,'RUT inválido: revisa el número y dígito verificador');if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))fail(400,'Correo inválido');const other=rut?db.prepare("SELECT id FROM customers WHERE upper(replace(replace(replace(replace(rut,'.',''),'-',''),' ',''),char(9),''))=?").get(normalizeRut(rut)):null;if(other&&other.id!==id)fail(409,'Ya existe un cliente con este RUT; búscalo para seleccionarlo');return {name,rut,address,giro,city,email,phone};}
+export function createCustomer(db,input,actor){const row=validateCustomer(db,input),id=uuid();db.prepare('INSERT INTO customers(id,name,rut,address,giro,city,email,phone,created_at,actor_id) VALUES (?,?,?,?,?,?,?,?,?,?)').run(id,row.name,row.rut,row.address,row.giro,row.city,row.email,row.phone,now(),actor);return {id,...row};}
+export function guestCustomer(db,actor){
+ db.prepare("INSERT OR IGNORE INTO customers(id,name,rut,address,giro,city,email,phone,created_at,actor_id) VALUES (?,'Cliente invitado','','','','','','',?,?)").run(GUEST_CUSTOMER_ID,now(),actor);
+ return db.prepare('SELECT id,name,rut,address,giro,city,email,phone FROM customers WHERE id=?').get(GUEST_CUSTOMER_ID);
+}
+export function updateCustomer(db,id,input){if(isGuestCustomer({id}))fail(400,'Cliente invitado es una ficha compartida sin datos personales. Crea un cliente para guardar sus datos.');const current=db.prepare('SELECT * FROM customers WHERE id=?').get(id);if(!current)fail(404,'Cliente no encontrado');const row=validateCustomer(db,{...current,...input},id);db.prepare('UPDATE customers SET name=?,rut=?,address=?,giro=?,city=?,email=?,phone=? WHERE id=?').run(row.name,row.rut,row.address,row.giro,row.city,row.email,row.phone,id);return {id,...row};}
+

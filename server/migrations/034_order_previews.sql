@@ -1,0 +1,1 @@
+CREATE TABLE external_order_previews(id TEXT PRIMARY KEY,platform TEXT NOT NULL,external_id TEXT NOT NULL,payload TEXT NOT NULL,captured_at TEXT NOT NULL,actor_id TEXT NOT NULL REFERENCES users(id),UNIQUE(platform,external_id));

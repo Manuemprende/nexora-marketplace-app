@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.*
+*.sqlite
+*.sqlite-*
+*.db
+*.key
+*oauth.json
+*session.json
+*credentials.json
+data/
+/var/
+.DS_Store
+thumbs.db

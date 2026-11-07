@@ -1,0 +1,3 @@
+import {text,fail} from './service.mjs';
+export function whatsappPhone(value){const raw=text(value,'Teléfono',40,true).replace(/[\s().-]/g,'');const n=raw.replace(/^\+/,'');if(!/^\d{10,15}$/.test(n)||n[0]==='0')fail(400,'Ingresa el teléfono con código de país, por ejemplo +56912345678');if(n.startsWith('56')&&!/^569\d{8}$/.test(n))fail(400,'El número chileno debe tener el formato +56912345678');return n;}
+export function customerPhone(value){const input=text(value??'','Teléfono',40);if(!input)return '';const digits=input.replace(/[\s().-]/g,'');return whatsappPhone(/^9\d{8}$/.test(digits)?'56'+digits:input);}

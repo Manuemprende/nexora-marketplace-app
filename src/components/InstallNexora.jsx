@@ -1,0 +1,13 @@
+import React,{useEffect,useState} from 'react';
+import {Download,WifiOff,X,BellRing} from 'lucide-react';
+import {triggerShopifyTestAlert} from './SaleAlertBanner';
+export default function InstallNexora(){
+ const [prompt,setPrompt]=useState(null),[online,setOnline]=useState(navigator.onLine),[help,setHelp]=useState(false),[installed,setInstalled]=useState(()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone);
+ useEffect(()=>{const install=e=>{e.preventDefault();setPrompt(e);};const done=()=>{setInstalled(true);setPrompt(null);};const update=()=>setOnline(navigator.onLine);window.addEventListener('beforeinstallprompt',install);window.addEventListener('appinstalled',done);window.addEventListener('online',update);window.addEventListener('offline',update);return()=>{window.removeEventListener('beforeinstallprompt',install);window.removeEventListener('appinstalled',done);window.removeEventListener('online',update);window.removeEventListener('offline',update);};},[]);
+ async function install(){
+  try{if('Notification' in window && Notification.permission==='default')await Notification.requestPermission();}catch{}
+  if(!prompt){setHelp(true);return;}
+  await prompt.prompt();await prompt.userChoice;setPrompt(null);
+ }
+ return <>{!installed&&<button className="pwaInstall" onClick={install} title="Instalar Nexora en tu PC con alertas Shopify nativas"><Download size={16}/><span>Instalar App</span></button>}{!online&&<div className="pwaOffline" role="alert"><WifiOff size={17}/>Sin conexión. Ventas y cambios de stock requieren internet.</div>}{help&&<div className="backdrop"><div className="panel pwaHelp" role="dialog" aria-modal="true" aria-labelledby="pwa-title"><button className="pwaClose" aria-label="Cerrar instrucciones" onClick={()=>setHelp(false)}><X size={18}/></button><h2 id="pwa-title">Instalar Nexora en tu PC (App Nativa + Alertas Shopify)</h2><p><b>En Windows / Mac (Chrome o Edge):</b> haz clic en el ícono de <b>Instalar Nexora (🖥️⬇️)</b> al final de la barra de direcciones (arriba a la derecha) y pulsa <b>«Instalar»</b>. Quedará en tu Escritorio y Barra de Tareas como aplicación nativa.</p><p><b>Notificaciones estilo Shopify («Cha-Ching»):</b> cada vez que entre un pedido desde tus Landings, sonará la caja registradora de Shopify y aparecerá la notificación nativa de Windows y el banner flotante.</p><div style={{display:'flex',gap:'10px',marginTop:'12px',flexWrap:'wrap'}}><button type="button" className="primary" onClick={()=>triggerShopifyTestAlert()} style={{display:'inline-flex',alignItems:'center',gap:'6px'}}><BellRing size={15}/>Probar Alerta Shopify («Cha-Ching»)</button><button type="button" className="outline" onClick={()=>setHelp(false)}>Listo</button></div></div></div>}</>;
+}

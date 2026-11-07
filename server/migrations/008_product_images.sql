@@ -1,0 +1,1 @@
+CREATE TABLE product_images (id TEXT PRIMARY KEY, sha256 TEXT NOT NULL UNIQUE, content BLOB NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL, original_bytes INTEGER NOT NULL, stored_bytes INTEGER NOT NULL, actor_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL);
