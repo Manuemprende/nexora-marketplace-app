@@ -21,18 +21,36 @@ export default function WhatsAppConnection({readOnly = false}) {
     }
   }
 
-  usePolling(load, show ? 3000 : 30000);
+  usePolling(load, show ? 2500 : 25000);
 
   async function connect() {
     setBusy(true);
     setError('');
+    setShow(true);
     try {
       setData(await api('/integrations/whatsapp/connect', {
         method: 'POST',
         body: {},
         signal: AbortSignal.timeout(60000)
       }));
-      setShow(true);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetAndNewQr() {
+    setBusy(true);
+    setError('');
+    setShow(true);
+    try {
+      await api('/integrations/whatsapp/disconnect', { method: 'POST', body: {} }).catch(() => {});
+      setData(await api('/integrations/whatsapp/connect', {
+        method: 'POST',
+        body: {},
+        signal: AbortSignal.timeout(60000)
+      }));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -41,7 +59,7 @@ export default function WhatsAppConnection({readOnly = false}) {
   }
 
   async function disconnect() {
-    if (!confirm('¿Desconectar el número de WhatsApp de Nexora?')) return;
+    if (!confirm('¿Desvincular el número actual de WhatsApp de Nexora?')) return;
     setBusy(true);
     try {
       setData(await api('/integrations/whatsapp/disconnect', { method: 'POST', body: {} }));
@@ -55,26 +73,26 @@ export default function WhatsAppConnection({readOnly = false}) {
   const label = data?.connected
     ? 'Conectado · Activo'
     : data?.state === 'qr'
-      ? 'Pendiente de escanear QR'
+      ? 'QR listo para escanear'
       : data?.state === 'connecting' || data?.state === 'reconnecting'
         ? 'Conectando…'
-        : 'Sin conectar';
+        : 'Listo para vincular';
 
   return (
     <section className={'panel connectionCard whatsappConnection ' + (data?.connected ? 'isConnected' : '')}>
       <div className="connectionCardHead">
         <img src="/platform-logos/whatsapp.svg" alt="WhatsApp" />
         <div>
-          <h3>WhatsApp Confirmación COD & POS</h3>
+          <h3>WhatsApp Nexora (Confirmación COD & POS)</h3>
           <span className={'tag ' + (data?.connected ? 'success' : 'neutral')}>{label}</span>
         </div>
       </div>
 
       <p className="fine">
-        Envía automáticamente el mensaje de confirmación de pedidos de Landings COD, recibe la respuesta <b>SÍ / NO</b> del cliente para pasar a <b>Confirmado WhatsApp</b> y envía comprobantes PDF del POS.
+        Vincula el número exclusivo de <b>Nexora</b> para confirmar pedidos contra entrega de Landings COD automáticamente (respuestas <b>SÍ / NO</b>) y enviar comprobantes PDF.
       </p>
 
-      {data?.connected && <b>🟢 Número vinculado: +{data.phone}</b>}
+      {data?.connected && <b>🟢 Número vinculado a Nexora: +{data.phone}</b>}
       {error && <p className="formError">{error}</p>}
       {data?.message && <p className="fine">{data.message}</p>}
 
@@ -82,11 +100,14 @@ export default function WhatsAppConnection({readOnly = false}) {
         <p className="fine">Solo un administrador puede conectar el número.</p>
       ) : (
         !readOnly && (
-          <div className="toolbar">
-            <button className="primary" disabled={busy || !data} onClick={connect}>
-              {busy ? 'Generando QR…' : data?.connected ? 'Ver conexión / QR' : 'Conectar WhatsApp QR'}
+          <div className="toolbar" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button className="primary" disabled={busy} onClick={connect}>
+              {busy ? 'Generando QR…' : data?.connected ? 'Ver estado / QR' : 'Conectar WhatsApp QR'}
             </button>
-            {data?.phone && (
+            <button className="outline" disabled={busy} onClick={resetAndNewQr}>
+              {data?.connected ? 'Cambiar Número' : 'Nuevo QR Limpio'}
+            </button>
+            {data?.connected && (
               <button className="outline" disabled={busy} onClick={disconnect}>
                 Desconectar
               </button>
@@ -96,11 +117,11 @@ export default function WhatsAppConnection({readOnly = false}) {
       )}
 
       <details className="fine">
-        <summary>¿Cómo funciona la confirmación automática?</summary>
+        <summary>¿Cómo funciona la confirmación automática en Nexora?</summary>
         <p>
-          1. Vincula tu WhatsApp escaneando el código QR (o configura WhatsApp Cloud API en el servidor).<br />
-          2. Cuando entra un pedido desde tu Landing (o al hacer clic en solicitar confirmación), Nexora le envía el resumen del pedido y dirección al cliente.<br />
-          3. Cuando el cliente responde <b>SÍ</b>, Nexora cambia el pedido a <b>Confirmado WhatsApp</b> automáticamente (y si tienes auto-despacho Dropi activo, crea la orden en Dropi MCP).
+          1. Escanea el QR con el WhatsApp que usarás en esta plataforma.<br />
+          2. Cuando entra un pedido COD desde tus landings, Nexora envía el mensaje de confirmación al cliente.<br />
+          3. Si el cliente responde <b>SÍ</b>, el pedido pasa automáticamente a <b>Confirmado WhatsApp</b>.
         </p>
       </details>
 
@@ -108,24 +129,26 @@ export default function WhatsAppConnection({readOnly = false}) {
         <Modal title="Vincular WhatsApp a Nexora" onClose={() => setShow(false)}>
           {data?.connected ? (
             <p className="callout">
-              ✅ WhatsApp conectado (+{data.phone}). La confirmación automática de pedidos COD y el envío de comprobantes están activos.
+              ✅ WhatsApp vinculado a Nexora: <b>+{data.phone}</b>. Ya está activo para confirmar pedidos COD de tus landings y enviar comprobantes.
             </p>
           ) : (
             <>
               <p>
-                En tu teléfono abre <b>WhatsApp → Dispositivos vinculados → Vincular un dispositivo</b> y escanea este código QR:
+                En el teléfono que usarás para <b>Nexora</b>, abre <b>WhatsApp → Dispositivos vinculados → Vincular un dispositivo</b> y escanea este código QR:
               </p>
               {data?.qr ? (
                 <img className="whatsappQr" src={data.qr} alt="Código QR para vincular WhatsApp de Nexora" />
               ) : (
                 <p className="callout">
-                  {data?.state === 'error'
-                    ? data.message || 'No se pudo conectar. Vuelve a intentarlo.'
-                    : 'Preparando el código QR…'}
+                  {busy
+                    ? 'Generando código QR de WhatsApp para Nexora… (toma ~2 segundos)'
+                    : data?.state === 'error'
+                      ? data.message || 'No se pudo generar el QR. Haz clic en "Generar nuevo QR".'
+                      : 'Preparando el código QR…'}
                 </p>
               )}
               <p className="fine">
-                Escanea este código desde el número de atención al cliente que usará Nexora para confirmar pedidos.
+                Este QR vincula el número directamente a tu servidor Nexora (`nexora.wentixai.pro`).
               </p>
             </>
           )}
@@ -133,11 +156,9 @@ export default function WhatsAppConnection({readOnly = false}) {
             <button className="outline" onClick={() => setShow(false)}>
               Cerrar
             </button>
-            {!data?.connected && (
-              <button className="primary" disabled={busy} onClick={connect}>
-                Generar nuevo QR
-              </button>
-            )}
+            <button className="primary" disabled={busy} onClick={resetAndNewQr}>
+              {busy ? 'Generando…' : data?.connected ? 'Vincular otro número' : 'Generar nuevo QR'}
+            </button>
           </div>
         </Modal>
       )}
