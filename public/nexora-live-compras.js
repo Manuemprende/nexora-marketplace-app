@@ -7,160 +7,85 @@
 
   style = document.createElement('style');
   style.textContent = `
+    body.nxlc-open .content {
+      display: none !important;
+    }
     #nx-live-compras {
-      position: fixed;
-      z-index: 30;
-      overflow-y: auto;
-      overflow-x: hidden;
-      background: linear-gradient(135deg, #f4f7fb 0%, #eef2f9 100%);
+      width: 100%;
+      background: transparent;
       color: #0f172a;
       font-family: Inter, 'DM Sans', system-ui, -apple-system, sans-serif;
-      padding: 24px 28px 40px;
-      transition: background 0.2s ease, color 0.2s ease;
+      padding: 10px 18px 18px;
+      box-sizing: border-box;
     }
     [data-theme="night"] #nx-live-compras {
-      background: linear-gradient(180deg, #0b1526 0%, #0f1c31 100%);
       color: #f8fafc;
       color-scheme: dark;
     }
     #nx-live-compras * { box-sizing: border-box; }
     #nx-live-compras [hidden] { display: none !important; }
-    #nx-live-compras .nxlc-wrap { max-width: 1480px; margin: 0 auto; width: 100%; }
+    #nx-live-compras .nxlc-wrap {
+      max-width: 100%;
+      margin: 0;
+      width: 100%;
+    }
     #nx-live-compras h1, #nx-live-compras h2, #nx-live-compras h3, #nx-live-compras h4 {
       color: inherit;
       margin: 0;
       font-family: inherit;
     }
 
-    /* Header */
-    #nx-live-compras .nxlc-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
-    }
-    #nx-live-compras h1 {
-      font-size: 26px;
-      letter-spacing: -0.03em;
-      font-weight: 800;
-      line-height: 1.15;
-    }
-    #nx-live-compras .nxlc-subtitle {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 7px;
-      font-size: 13px;
-      margin-top: 5px;
-      color: #64748b;
-      font-weight: 500;
-    }
-    [data-theme="night"] #nx-live-compras .nxlc-subtitle {
-      color: #94a3b8;
-    }
     @keyframes nxlcPulse {
       0%, 100% { transform: scale(0.95); opacity: 0.75; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55); }
-      50% { transform: scale(1.15); opacity: 1; box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+      50% { transform: scale(1.15); opacity: 1; box-shadow: 0 0 0 5px rgba(34, 197, 94, 0); }
     }
     #nx-live-compras .nxlc-live-dot {
       display: inline-block;
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: #22c55e;
       animation: nxlcPulse 1.6s infinite ease-in-out;
       flex-shrink: 0;
     }
 
-    /* Controls */
-    #nx-live-compras .nxlc-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    #nx-live-compras .nxlc-select,
-    #nx-live-compras .nxlc-search,
-    #nx-live-compras .nxlc-button {
-      height: 38px;
-      border: 1px solid #cbd5e1;
-      background: #ffffff;
-      border-radius: 9px;
-      color: #1e293b;
-      padding: 0 12px;
-      font: inherit;
-      font-size: 12.5px;
-      font-weight: 600;
-      transition: all 0.15s ease;
-    }
-    [data-theme="night"] #nx-live-compras .nxlc-select,
-    [data-theme="night"] #nx-live-compras .nxlc-search,
-    [data-theme="night"] #nx-live-compras .nxlc-button {
-      background: #16263e;
-      border-color: #2b3d57;
-      color: #f1f5f9;
-    }
-    #nx-live-compras .nxlc-button {
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-    }
-    #nx-live-compras .nxlc-button:hover {
-      border-color: #3b82f6;
-      color: #2563eb;
-    }
-    [data-theme="night"] #nx-live-compras .nxlc-button:hover {
-      border-color: #60a5fa;
-      color: #60a5fa;
-      background: #1c304f;
-    }
-    #nx-live-compras button:focus-visible,
-    #nx-live-compras input:focus-visible,
-    #nx-live-compras select:focus-visible {
-      outline: 2px solid #3b82f6;
-      outline-offset: 2px;
-    }
-
-    /* Top KPI Banner */
+    /* Top KPI Banner (Right at the top, ultra compact) */
     #nx-live-compras .nxlc-kpis {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 14px;
-      margin-bottom: 26px;
+      gap: 10px;
+      margin-bottom: 12px;
     }
     #nx-live-compras .nxlc-kpi {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 10px;
       border: 1px solid #e2e8f0;
-      border-radius: 13px;
+      border-radius: 10px;
       background: #ffffff;
-      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.03);
-      padding: 16px 18px;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+      padding: 10px 14px;
       min-width: 0;
     }
     [data-theme="night"] #nx-live-compras .nxlc-kpi {
       background: #16263e;
       border-color: #2b3d57;
-      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
     }
     #nx-live-compras .nxlc-kpi-left {
       display: flex;
-      align-items: flex-start;
-      gap: 12px;
+      align-items: center;
+      gap: 10px;
       min-width: 0;
       flex: 1;
     }
     #nx-live-compras .nxlc-kpi-icon {
-      width: 38px;
-      height: 38px;
+      width: 32px;
+      height: 32px;
       background: rgba(59, 130, 246, 0.12);
       border: 1px solid rgba(59, 130, 246, 0.25);
-      border-radius: 10px;
+      border-radius: 8px;
       display: grid;
       place-items: center;
       color: #2563eb;
@@ -171,22 +96,24 @@
       border-color: rgba(96, 165, 250, 0.3);
       color: #60a5fa;
     }
-    #nx-live-compras svg { width: 19px; height: 19px; display: block; }
+    #nx-live-compras svg { width: 16px; height: 16px; display: block; }
     #nx-live-compras .nxlc-kpi label {
       display: block;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: #64748b;
-      margin: 0 0 4px;
+      margin: 0 0 2px;
+      line-height: 1.1;
     }
     [data-theme="night"] #nx-live-compras .nxlc-kpi label {
       color: #94a3b8;
     }
     #nx-live-compras .nxlc-kpi strong {
       display: block;
-      font-size: 23px;
+      font-size: 19px;
       letter-spacing: -0.03em;
       font-weight: 800;
+      line-height: 1.15;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -196,57 +123,118 @@
       color: #ffffff;
     }
     #nx-live-compras .nxlc-kpi small {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       color: #16a34a;
       display: flex;
       align-items: center;
       gap: 4px;
-      margin-top: 5px;
+      margin-top: 2px;
+      white-space: nowrap;
     }
     [data-theme="night"] #nx-live-compras .nxlc-kpi small {
       color: #4ade80;
     }
     #nx-live-compras .nxlc-spark {
-      width: 58px;
-      height: 28px;
+      width: 48px;
+      height: 22px;
       flex-shrink: 0;
       opacity: 0.85;
     }
 
-    /* Section Header & Toolbar */
+    /* Unified Single-Line Section Header & Filter Toolbar */
     #nx-live-compras .nxlc-section-head {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 16px;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    #nx-live-compras .nxlc-title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       flex-wrap: wrap;
     }
     #nx-live-compras .nxlc-section-head h2 {
-      font-size: 19px;
+      font-size: 15.5px;
       font-weight: 800;
       letter-spacing: -0.02em;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
+    }
+    #nx-live-compras .nxlc-sync-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #64748b;
+      background: rgba(148, 163, 184, 0.1);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      padding: 3px 9px;
+      border-radius: 999px;
+    }
+    [data-theme="night"] #nx-live-compras .nxlc-sync-pill {
+      color: #94a3b8;
+      background: #16263e;
+      border-color: #2b3d57;
     }
     #nx-live-compras .nxlc-toolbar {
       display: flex;
-      gap: 10px;
+      gap: 7px;
       align-items: center;
       flex-wrap: wrap;
     }
+    #nx-live-compras .nxlc-select,
+    #nx-live-compras .nxlc-search,
+    #nx-live-compras .nxlc-button {
+      height: 32px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      border-radius: 7px;
+      color: #1e293b;
+      padding: 0 10px;
+      font: inherit;
+      font-size: 11.5px;
+      font-weight: 600;
+      transition: all 0.15s ease;
+    }
+    [data-theme="night"] #nx-live-compras .nxlc-select,
+    [data-theme="night"] #nx-live-compras .nxlc-search,
+    [data-theme="night"] #nx-live-compras .nxlc-button {
+      background: #16263e;
+      border-color: #2b3d57;
+      color: #f1f5f9;
+    }
     #nx-live-compras .nxlc-search {
-      width: 240px;
+      width: 195px;
+    }
+    #nx-live-compras .nxlc-button {
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+    #nx-live-compras .nxlc-button:hover {
+      border-color: #3b82f6;
+      color: #2563eb;
+    }
+    [data-theme="night"] #nx-live-compras .nxlc-button:hover {
+      border-color: #60a5fa;
+      color: #60a5fa;
+      background: #1c304f;
     }
     #nx-live-compras .nxlc-toggle {
       display: flex;
       border: 1px solid #cbd5e1;
-      border-radius: 9px;
-      padding: 3px;
+      border-radius: 7px;
+      padding: 2px;
       background: #ffffff;
-      height: 38px;
+      height: 32px;
       align-items: center;
     }
     [data-theme="night"] #nx-live-compras .nxlc-toggle {
@@ -255,13 +243,13 @@
     }
     #nx-live-compras .nxlc-toggle button {
       border: 0;
-      border-radius: 6px;
-      padding: 5px 10px;
-      height: 30px;
+      border-radius: 5px;
+      padding: 3px 8px;
+      height: 26px;
       background: transparent;
       color: #64748b;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 12px;
     }
     [data-theme="night"] #nx-live-compras .nxlc-toggle button {
       color: #94a3b8;
@@ -269,53 +257,48 @@
     #nx-live-compras .nxlc-toggle button.active {
       background: #2563eb;
       color: #ffffff;
-      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
     }
 
-    /* Landings Grid */
+    /* Landings Grid (Compact & Left-Aligned) */
     #nx-live-compras .nxlc-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(390px, 1fr));
-      gap: 18px;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 380px));
+      gap: 12px;
       align-items: start;
-    }
-    #nx-live-compras .nxlc-grid.single-item {
-      grid-template-columns: minmax(0, 620px);
+      justify-content: start;
     }
     #nx-live-compras .nxlc-grid.list {
-      grid-template-columns: minmax(0, 720px);
+      grid-template-columns: minmax(0, 520px);
     }
 
-    /* Landing CRM Card */
+    /* Compact Landing CRM Card (Fits on 1 screen without scrolling) */
     #nx-live-compras .nxlc-card {
       border: 1px solid #e2e8f0;
-      border-radius: 15px;
+      border-radius: 12px;
       background: #ffffff;
-      padding: 18px;
+      padding: 12px 13px;
       min-width: 0;
-      box-shadow: 0 6px 20px rgba(15, 23, 42, 0.04);
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 3px 12px rgba(15, 23, 42, 0.03);
     }
     [data-theme="night"] #nx-live-compras .nxlc-card {
       background: #16263e;
       border-color: #2b3d57;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.24);
     }
     #nx-live-compras .nxlc-card.is-live-active {
       border-color: #22c55e;
-      box-shadow: 0 0 22px rgba(34, 197, 94, 0.18);
+      box-shadow: 0 0 16px rgba(34, 197, 94, 0.16);
     }
     #nx-live-compras .nxlc-card-top {
       display: flex;
-      gap: 12px;
+      gap: 9px;
       align-items: center;
-      min-height: 48px;
-      margin-bottom: 15px;
+      margin-bottom: 9px;
     }
     #nx-live-compras .nxlc-product-icon {
-      height: 48px;
-      width: 48px;
-      border-radius: 10px;
+      height: 36px;
+      width: 36px;
+      border-radius: 8px;
       flex: none;
       overflow: hidden;
       background: #f1f5f9;
@@ -324,7 +307,7 @@
       display: grid;
       place-items: center;
       font-weight: 800;
-      font-size: 16px;
+      font-size: 13px;
     }
     [data-theme="night"] #nx-live-compras .nxlc-product-icon {
       background: #102039;
@@ -342,8 +325,8 @@
       flex: 1;
     }
     #nx-live-compras .nxlc-card-title h3 {
-      font-size: 15.5px;
-      line-height: 1.3;
+      font-size: 13.5px;
+      line-height: 1.25;
       font-weight: 800;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -354,12 +337,12 @@
       max-width: 100%;
       color: #2563eb;
       text-decoration: none;
-      font-size: 12px;
+      font-size: 10.5px;
       font-weight: 600;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      margin-top: 3px;
+      margin-top: 1px;
     }
     [data-theme="night"] #nx-live-compras .nxlc-card-title a {
       color: #60a5fa;
@@ -367,21 +350,21 @@
     #nx-live-compras .nxlc-card-badges {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       flex-shrink: 0;
     }
     #nx-live-compras .nxlc-status {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
       border-radius: 999px;
       background: rgba(34, 197, 94, 0.14);
       color: #16a34a;
-      padding: 5px 10px;
+      padding: 3px 8px;
       white-space: nowrap;
       border: 1px solid rgba(34, 197, 94, 0.35);
       display: inline-flex;
       align-items: center;
-      gap: 5px;
+      gap: 4px;
     }
     [data-theme="night"] #nx-live-compras .nxlc-status {
       background: rgba(34, 197, 94, 0.18);
@@ -389,9 +372,9 @@
       border-color: rgba(74, 222, 128, 0.35);
     }
     #nx-live-compras .nxlc-reset-btn {
-      width: 30px;
-      height: 30px;
-      border-radius: 8px;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
       border: 1px solid #e2e8f0;
       background: transparent;
       color: #64748b;
@@ -399,7 +382,7 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-size: 13px;
+      font-size: 11px;
       transition: all 0.15s ease;
     }
     [data-theme="night"] #nx-live-compras .nxlc-reset-btn {
@@ -416,13 +399,13 @@
     #nx-live-compras .nxlc-pair {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-bottom: 10px;
+      gap: 7px;
+      margin-bottom: 6px;
     }
     #nx-live-compras .nxlc-mini {
       border: 1px solid #e2e8f0;
-      border-radius: 11px;
-      padding: 12px 14px;
+      border-radius: 8px;
+      padding: 8px 10px;
       background: #f8fafc;
     }
     [data-theme="night"] #nx-live-compras .nxlc-mini {
@@ -431,26 +414,26 @@
     }
     #nx-live-compras .nxlc-mini label {
       display: block;
-      font-size: 11.5px;
+      font-size: 10px;
       font-weight: 600;
       color: #64748b;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     }
     [data-theme="night"] #nx-live-compras .nxlc-mini label {
       color: #94a3b8;
     }
     #nx-live-compras .nxlc-mini strong {
       display: block;
-      font-size: 24px;
+      font-size: 18px;
       font-weight: 800;
       letter-spacing: -0.03em;
-      line-height: 1.15;
+      line-height: 1.1;
     }
     #nx-live-compras .nxlc-mini small {
       display: block;
-      font-size: 11px;
+      font-size: 9.5px;
       color: #64748b;
-      margin-top: 4px;
+      margin-top: 2px;
       font-weight: 500;
     }
     [data-theme="night"] #nx-live-compras .nxlc-mini small {
@@ -458,9 +441,9 @@
     }
     #nx-live-compras .nxlc-segbar {
       display: flex;
-      gap: 3px;
-      height: 5px;
-      margin-top: 8px;
+      gap: 2px;
+      height: 3.5px;
+      margin-top: 5px;
       border-radius: 999px;
       overflow: hidden;
       background: rgba(148, 163, 184, 0.18);
@@ -474,9 +457,9 @@
     /* Inner Sections */
     #nx-live-compras .nxlc-detail {
       border: 1px solid #e2e8f0;
-      border-radius: 11px;
-      padding: 13px 14px;
-      margin-top: 10px;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-top: 6px;
       background: #f8fafc;
     }
     [data-theme="night"] #nx-live-compras .nxlc-detail {
@@ -484,9 +467,9 @@
       border-color: #243854;
     }
     #nx-live-compras .nxlc-detail h4 {
-      font-size: 13px;
+      font-size: 11px;
       font-weight: 700;
-      margin-bottom: 10px;
+      margin-bottom: 5px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -494,11 +477,11 @@
     #nx-live-compras .nxlc-bar-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
-      gap: 6px 10px;
+      gap: 3px 8px;
       align-items: center;
-      font-size: 12px;
+      font-size: 10.5px;
       font-weight: 600;
-      margin-top: 10px;
+      margin-top: 5px;
     }
     #nx-live-compras .nxlc-bar-row span {
       overflow: hidden;
@@ -509,7 +492,7 @@
       font-weight: 700;
       grid-column: 2;
       grid-row: 2;
-      font-size: 12px;
+      font-size: 10.5px;
       color: #475569;
     }
     [data-theme="night"] #nx-live-compras .nxlc-bar-row b {
@@ -518,7 +501,7 @@
     #nx-live-compras .nxlc-bar {
       grid-column: 1;
       grid-row: 2;
-      height: 7px;
+      height: 5px;
       background: rgba(148, 163, 184, 0.2);
       border-radius: 999px;
       overflow: hidden;
@@ -530,10 +513,10 @@
       border-radius: 999px;
     }
     #nx-live-compras .nxlc-empty {
-      font-size: 12px;
-      line-height: 1.5;
+      font-size: 10.5px;
+      line-height: 1.35;
       color: #64748b;
-      padding: 4px 0;
+      padding: 1px 0;
     }
     [data-theme="night"] #nx-live-compras .nxlc-empty {
       color: #94a3b8;
@@ -543,15 +526,15 @@
     #nx-live-compras .nxlc-products {
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin-top: 10px;
-      font-size: 12.5px;
+      gap: 8px;
+      margin-top: 5px;
+      font-size: 11px;
     }
     #nx-live-compras .nxlc-products img {
-      width: 38px;
-      height: 38px;
+      width: 28px;
+      height: 28px;
       object-fit: cover;
-      border-radius: 8px;
+      border-radius: 6px;
       border: 1px solid #e2e8f0;
     }
     [data-theme="night"] #nx-live-compras .nxlc-products img {
@@ -568,28 +551,27 @@
     }
     #nx-live-compras .nxlc-products small {
       display: block;
-      font-size: 11px;
+      font-size: 9.5px;
       color: #64748b;
-      margin-top: 2px;
-      font-weight: 500;
+      margin-top: 1px;
     }
     [data-theme="night"] #nx-live-compras .nxlc-products small {
       color: #94a3b8;
     }
     #nx-live-compras .nxlc-products strong {
-      font-size: 13px;
+      font-size: 11px;
       white-space: nowrap;
       font-weight: 800;
     }
 
     /* Comportamiento en tiempo real */
     #nx-live-compras .nxlc-window {
-      font-size: 10.5px;
+      font-size: 9.5px;
       font-weight: 700;
       background: rgba(59, 130, 246, 0.12);
       border: 1px solid rgba(59, 130, 246, 0.25);
       border-radius: 999px;
-      padding: 3px 9px;
+      padding: 2px 7px;
       color: #2563eb;
     }
     [data-theme="night"] #nx-live-compras .nxlc-window {
@@ -601,17 +583,17 @@
       display: flex;
       justify-content: space-around;
       position: relative;
-      padding: 10px 0 4px;
+      padding: 4px 0 1px;
       text-align: center;
     }
     #nx-live-compras .nxlc-behavior:before {
       content: '';
       position: absolute;
-      top: 28px;
-      height: 2px;
+      top: 17px;
+      height: 1.5px;
       background: linear-gradient(90deg, #38bdf8, #a78bfa, #34d399);
-      left: 16%;
-      right: 16%;
+      left: 17%;
+      right: 17%;
       opacity: 0.55;
     }
     #nx-live-compras .nxlc-stage {
@@ -620,97 +602,68 @@
       align-items: center;
       position: relative;
       width: 33%;
-      gap: 6px;
+      gap: 2px;
     }
     #nx-live-compras .nxlc-orb {
-      height: 36px;
-      width: 36px;
+      height: 26px;
+      width: 26px;
       border-radius: 50%;
       background: radial-gradient(circle at 34% 29%, #f0f9ff 0, #7dd3fc 32%, #0284c7 70%, #bae6fd 95%);
-      box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.14), 0 4px 10px rgba(2, 132, 199, 0.25);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12), 0 3px 7px rgba(2, 132, 199, 0.22);
       border: 1px solid #38bdf8;
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
     #nx-live-compras .nxlc-orb.purple {
       background: radial-gradient(circle at 34% 29%, #faf5ff, #c4b5fd 32%, #7c3aed 70%, #ddd6fe 95%);
       border-color: #a78bfa;
-      box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.14), 0 4px 10px rgba(124, 58, 237, 0.25);
+      box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.12), 0 3px 7px rgba(124, 58, 237, 0.22);
     }
     #nx-live-compras .nxlc-orb.green {
       background: radial-gradient(circle at 34% 29%, #f0fdf4, #86efac 32%, #16a34a 70%, #bbf7d0 95%);
       border-color: #4ade80;
-      box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.14), 0 4px 10px rgba(22, 163, 74, 0.25);
+      box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.12), 0 3px 7px rgba(22, 163, 74, 0.22);
     }
     #nx-live-compras .nxlc-orb.has-value {
-      transform: scale(1.14);
-      box-shadow: 0 0 0 6px rgba(56, 189, 248, 0.25), 0 6px 14px rgba(2, 132, 199, 0.38);
+      transform: scale(1.12);
     }
     #nx-live-compras .nxlc-stage b {
-      font-size: 18px;
+      font-size: 14px;
       font-weight: 800;
-      margin-top: 2px;
+      margin-top: 1px;
+      line-height: 1.1;
     }
     #nx-live-compras .nxlc-stage small {
-      font-size: 11px;
+      font-size: 9.5px;
       font-weight: 600;
-      line-height: 1.3;
+      line-height: 1.2;
       color: #64748b;
     }
     [data-theme="night"] #nx-live-compras .nxlc-stage small {
       color: #94a3b8;
     }
 
-    /* Clean Non-Clickable Status Footer (Zero IP/DB-IP links) */
-    #nx-live-compras .nxlc-footer {
-      font-size: 11.5px;
-      font-weight: 500;
-      color: #64748b;
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      margin-top: 18px;
-    }
-    [data-theme="night"] #nx-live-compras .nxlc-footer {
-      color: #94a3b8;
-    }
-
     /* Responsive Breakpoints */
-    @media (max-width: 1180px) {
+    @media (max-width: 1100px) {
       #nx-live-compras .nxlc-kpis {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
       #nx-live-compras .nxlc-grid {
-        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
       }
     }
     @media (max-width: 768px) {
       #nx-live-compras {
-        padding: 16px 12px 32px;
-      }
-      #nx-live-compras h1 {
-        font-size: 21px;
-      }
-      #nx-live-compras .nxlc-head {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 12px;
-      }
-      #nx-live-compras .nxlc-actions {
-        width: 100%;
-      }
-      #nx-live-compras .nxlc-actions .nxlc-select {
-        flex: 1;
+        padding: 10px 10px 24px;
       }
       #nx-live-compras .nxlc-kpis {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
-        margin-bottom: 20px;
+        gap: 8px;
+        margin-bottom: 12px;
       }
       #nx-live-compras .nxlc-kpi {
-        padding: 12px;
+        padding: 10px;
       }
       #nx-live-compras .nxlc-kpi strong {
-        font-size: 18px;
+        font-size: 16px;
       }
       #nx-live-compras .nxlc-spark {
         display: none;
@@ -718,28 +671,25 @@
       #nx-live-compras .nxlc-section-head {
         flex-direction: column;
         align-items: stretch;
-        gap: 10px;
+        gap: 8px;
       }
       #nx-live-compras .nxlc-toolbar {
         width: 100%;
-        display: flex;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 6px;
       }
       #nx-live-compras .nxlc-search {
-        flex: 1;
-        min-width: 0;
-        width: auto;
+        grid-column: 1 / -1;
+        width: 100%;
+      }
+      #nx-live-compras .nxlc-select {
+        width: 100%;
       }
       #nx-live-compras .nxlc-grid,
-      #nx-live-compras .nxlc-grid.single-item,
       #nx-live-compras .nxlc-grid.list {
         grid-template-columns: minmax(0, 1fr);
-        gap: 14px;
-      }
-      #nx-live-compras .nxlc-card {
-        padding: 14px;
-      }
-      #nx-live-compras .nxlc-mini strong {
-        font-size: 20px;
+        gap: 10px;
       }
     }
   `;
@@ -797,30 +747,24 @@
     }
   }
 
-  function layout() {
-    if (!page || !state.open) return;
-    var side = document.querySelector('aside.side');
-    var header = document.querySelector('main > header');
-    var top = header ? header.getBoundingClientRect().bottom : 0;
-    var left = 0;
-    if (window.innerWidth > 900 && side) {
-      left = Math.max(0, side.getBoundingClientRect().right);
+  function mountInsideMain() {
+    var main = document.querySelector('main.main') || document.querySelector('main');
+    if (!main) return;
+    if (!page) {
+      page = document.createElement('div');
+      page.id = 'nx-live-compras';
     }
-    page.style.top = Math.max(0, top) + 'px';
-    page.style.left = left + 'px';
-    page.style.right = '0';
-    page.style.bottom = '0';
+    if (page.parentNode !== main) {
+      main.appendChild(page);
+    }
   }
 
   function show() {
     addNav();
-    if (!page) {
-      page = document.createElement('div');
-      page.id = 'nx-live-compras';
-      document.body.appendChild(page);
-    }
+    mountInsideMain();
     state.open = true;
-    page.hidden = false;
+    document.body.classList.add('nxlc-open');
+    if (page) page.hidden = false;
     document.querySelectorAll('aside.side nav button.nav').forEach(function (b) {
       b.classList.toggle('active', b === navButton);
     });
@@ -833,7 +777,6 @@
       if (savedCrumb == null) savedCrumb = crumb.innerHTML;
       crumb.textContent = 'Nexora  ›  Live / Compras';
     }
-    layout();
     render();
     refresh();
     clearInterval(pollTimer);
@@ -843,6 +786,7 @@
   function hide() {
     if (!state.open) return;
     state.open = false;
+    document.body.classList.remove('nxlc-open');
     if (page) page.hidden = true;
     if (navButton) navButton.classList.remove('active');
     var crumb = document.querySelector('main > header .crumb');
@@ -859,11 +803,10 @@
     if (logout) hide();
   }, true);
 
-  window.addEventListener('resize', layout);
   new MutationObserver(function () {
     addNav();
-    if (state.open) layout();
-  }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-theme'] });
+    if (state.open) mountInsideMain();
+  }).observe(document.body, { childList: true, subtree: true });
 
   function filteredLandings() {
     var rows = (state.data && state.data.landings) || [];
@@ -903,7 +846,7 @@
       return '<div class="nxlc-bar-row"><span>' + esc(place(x)) + '</span><b>' + count + '</b><div class="nxlc-bar"><i style="width:' + pct + '%"></i></div></div>';
     }).join('') || '<div class="nxlc-empty">Sin ubicaciones registradas en este periodo.</div>';
 
-    var products = (l.top_products || []).slice(0, 3).map(function (x) {
+    var products = (l.top_products || []).slice(0, 2).map(function (x) {
       return '<div class="nxlc-products">' +
         (image ? '<img src="' + esc(image) + '" alt="" loading="lazy">' : '') +
         '<div class="nxlc-product-name">' + esc(x.name) + '<small>' + Number(x.orders || 0) + ' unidades</small></div>' +
@@ -940,7 +883,7 @@
         '<div class="nxlc-mini">' +
           '<label>Total sesiones</label>' +
           '<strong>' + sessionsCount.toLocaleString('es-CL') + '</strong>' +
-          '<small>' + uniqueCount.toLocaleString('es-CL') + ' visitantes únicos</small>' +
+          '<small>' + uniqueCount.toLocaleString('es-CL') + ' personas únicas</small>' +
           '<div class="nxlc-segbar"><span style="width:65%;background:#38bdf8"></span><span style="width:25%;background:#3b82f6"></span><span style="width:10%;background:#93c5fd"></span></div>' +
         '</div>' +
         '<div class="nxlc-mini">' +
@@ -985,28 +928,14 @@
     var kpis = [
       ['sales', 'Ventas totales', money(t.revenue), '▲ Facturación en el periodo', '#8b5cf6'],
       ['orders', 'Órdenes', t.orders.toLocaleString('es-CL'), '▲ Pedidos COD recibidos', '#3b82f6'],
-      ['visitors', 'Visitantes', t.visitors.toLocaleString('es-CL'), '● ' + t.live + ' activos ahora · ' + t.sessions + ' sesiones', '#0ea5e9'],
+      ['visitors', 'Visitantes únicos', t.visitors.toLocaleString('es-CL'), '● ' + t.live + ' en vivo · ' + t.sessions + ' aperturas (sesiones)', '#0ea5e9'],
       ['conversion', 'Conversión', conv.toLocaleString('es-CL', { maximumFractionDigits: 2 }) + '%', '▲ Órdenes / sesiones', '#10b981']
     ];
 
-    var gridClass = 'nxlc-grid' + (state.view === 'list' ? ' list' : (rows.length === 1 ? ' single-item' : ''));
+    var gridClass = 'nxlc-grid' + (state.view === 'list' ? ' list' : '');
 
     page.innerHTML =
       '<div class="nxlc-wrap">' +
-        '<div class="nxlc-head">' +
-          '<div>' +
-            '<h1>Live / Compras</h1>' +
-            '<div class="nxlc-subtitle"><span class="nxlc-live-dot"></span>Monitorea en tiempo real todas tus landings activas</div>' +
-          '</div>' +
-          '<div class="nxlc-actions">' +
-            '<select class="nxlc-select" data-role="period" aria-label="Periodo">' +
-              periods.map(function (p) {
-                return '<option value="' + p[0] + '" ' + (p[0] === state.period ? 'selected' : '') + '>' + p[1] + '</option>';
-              }).join('') +
-            '</select>' +
-            '<button class="nxlc-button" data-action="refresh" aria-label="Actualizar métricas">↻ Actualizar</button>' +
-          '</div>' +
-        '</div>' +
         '<div class="nxlc-kpis">' +
           kpis.map(function (k) {
             return '<div class="nxlc-kpi">' +
@@ -1019,9 +948,18 @@
           }).join('') +
         '</div>' +
         '<div class="nxlc-section-head">' +
-          '<h2>' + icon('layers') + 'Mis Landings Activas (' + rows.length + ')</h2>' +
+          '<div class="nxlc-title-group">' +
+            '<h2>' + icon('layers') + 'Mis Landings Activas (' + rows.length + ')</h2>' +
+            '<span class="nxlc-sync-pill"><span class="nxlc-live-dot"></span>Actualizado ' + time(data.refreshed_at) + '</span>' +
+          '</div>' +
           '<div class="nxlc-toolbar">' +
             '<input class="nxlc-search" data-role="search" aria-label="Buscar landing" placeholder="Buscar landing…" value="' + esc(state.search) + '">' +
+            '<select class="nxlc-select" data-role="period" aria-label="Periodo">' +
+              periods.map(function (p) {
+                return '<option value="' + p[0] + '" ' + (p[0] === state.period ? 'selected' : '') + '>' + p[1] + '</option>';
+              }).join('') +
+            '</select>' +
+            '<button class="nxlc-button" data-action="refresh" aria-label="Actualizar métricas">↻ Actualizar</button>' +
             '<div class="nxlc-toggle">' +
               '<button data-view="grid" class="' + (state.view === 'grid' ? 'active' : '') + '" aria-label="Vista en cuadrícula">▦</button>' +
               '<button data-view="list" class="' + (state.view === 'list' ? 'active' : '') + '" aria-label="Vista en lista">☰</button>' +
@@ -1031,7 +969,6 @@
         '<div class="' + gridClass + '">' +
           (rows.map(landingCard).join('') || '<div class="nxlc-empty">' + (state.data ? 'No hay campañas activas que coincidan.' : 'Cargando landings activas…') + '</div>') +
         '</div>' +
-        '<div class="nxlc-footer"><span class="nxlc-live-dot"></span>Actualizado ' + time(data.refreshed_at) + ' · Sincronización automática cada 6 s</div>' +
       '</div>';
 
     page.querySelector('[data-role="period"]').addEventListener('change', function (e) {
@@ -1089,7 +1026,7 @@
       })
       .catch(function (error) {
         if (page && state.open && !state.data) {
-          page.innerHTML = '<div class="nxlc-wrap"><h1>Live / Compras</h1><p>' + esc(error.message) + ' · Revisa tu sesión y vuelve a actualizar.</p></div>';
+          page.innerHTML = '<div class="nxlc-wrap"><p>' + esc(error.message) + ' · Revisa tu sesión y vuelve a actualizar.</p></div>';
         }
       })
       .finally(function () {
