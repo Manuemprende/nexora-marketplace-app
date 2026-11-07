@@ -483,36 +483,198 @@ export default function LandingOrdersPage({ toast = () => {} }) {
         [data-theme="night"] .nx-kpi-val {
           color: #ffffff !important;
         }
+        .nx-cod-pill {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+          background: rgba(0, 102, 255, 0.14);
+          border: 1px solid rgba(59, 130, 246, 0.35);
+          color: #3b82f6;
+          font-size: 0.72rem;
+          font-weight: 800;
+          letter-spacing: 0.05em;
+          padding: 4px 12px;
+          min-width: 52px;
+          border-radius: 999px;
+          line-height: 1;
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
+        [data-theme="night"] .nx-cod-pill {
+          background: rgba(37, 99, 235, 0.22);
+          border-color: rgba(96, 165, 250, 0.4);
+          color: #60a5fa;
+        }
+        .nx-orders-actions {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+        @media (max-width: 640px) {
+          .nx-orders-actions {
+            width: 100%;
+          }
+          .nx-orders-actions > button {
+            flex: 1 1 auto;
+            justify-content: center;
+          }
+        }
         .nx-filter-bar {
           display: flex;
           align-items: center;
           gap: 8px;
           flex-wrap: wrap;
-          padding: 8px 12px;
+          padding: 10px 12px;
           background: #ffffff;
           border: 1px solid #e2e8f0;
-          border-radius: 9px;
+          border-radius: 10px;
           margin-bottom: 10px;
+          box-sizing: border-box;
+          width: 100%;
+          overflow: hidden;
         }
         [data-theme="night"] .nx-filter-bar {
           background: #16263e;
           border-color: #2b3d57;
         }
+        .nx-search-wrap {
+          position: relative;
+          display: flex;
+          align-items: center;
+          flex: 1 1 240px;
+          min-width: 0;
+          width: 100%;
+        }
+        .nx-search-icon {
+          position: absolute;
+          left: 10px;
+          pointer-events: none;
+          color: #64748b;
+        }
+        [data-theme="night"] .nx-search-icon {
+          color: #94a3b8;
+        }
         .nx-filter-input {
-          height: 33px;
+          height: 36px;
           border: 1px solid #cbd5e1;
-          border-radius: 6px;
-          padding: 0 8px;
-          font-size: 12px;
+          border-radius: 8px;
+          padding: 0 10px;
+          font-size: 12.5px;
           font-weight: 500;
-          background: #ffffff;
+          background: #f8fafc;
           color: #0f172a;
           outline: none;
+          box-sizing: border-box;
+          min-width: 0;
+          max-width: 100%;
+        }
+        .nx-filter-input:focus {
+          border-color: #3b82f6;
         }
         [data-theme="night"] .nx-filter-input {
           background: #102039;
           border-color: #354c6b;
           color: #e1e9f5;
+        }
+        .nx-search-input {
+          width: 100%;
+          padding-left: 32px;
+        }
+        .nx-filter-selects {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex: 0 1 auto;
+          min-width: 0;
+          max-width: 100%;
+        }
+        .nx-filter-field {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          height: 36px;
+          padding: 0 8px 0 10px;
+          border-radius: 8px;
+          background: #f8fafc;
+          border: 1px solid #cbd5e1;
+          min-width: 0;
+          max-width: 100%;
+          box-sizing: border-box;
+          overflow: hidden;
+        }
+        [data-theme="night"] .nx-filter-field {
+          background: #102039;
+          border-color: #354c6b;
+        }
+        .nx-filter-label {
+          font-size: 0.68rem;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+          color: #64748b;
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
+        [data-theme="night"] .nx-filter-label {
+          color: #94a3b8;
+        }
+        .nx-filter-select {
+          border: none;
+          background: transparent;
+          color: #0f172a;
+          font-size: 12px;
+          font-weight: 700;
+          outline: none;
+          width: 100%;
+          min-width: 0;
+          max-width: 210px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          cursor: pointer;
+          padding-right: 4px;
+        }
+        [data-theme="night"] .nx-filter-select {
+          color: #f1f5f9;
+        }
+        [data-theme="night"] .nx-filter-select option {
+          background: #102039;
+          color: #f1f5f9;
+        }
+        @media (max-width: 768px) {
+          .nx-filter-bar {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+            padding: 10px;
+          }
+          .nx-search-wrap {
+            flex: 1 1 auto;
+            width: 100%;
+          }
+          .nx-filter-selects {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            width: 100%;
+          }
+          .nx-filter-field {
+            width: 100%;
+          }
+          .nx-filter-select {
+            max-width: 100%;
+          }
+        }
+        .nx-empty-title {
+          margin: 0 0 4px 0;
+          font-size: 0.92rem;
+          font-weight: 700;
+          color: #0f172a;
+        }
+        [data-theme="night"] .nx-empty-title {
+          color: #f8fafc !important;
         }
         .nx-table-card {
           background: #ffffff;
@@ -700,21 +862,14 @@ export default function LandingOrdersPage({ toast = () => {} }) {
 
       {/* Top Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '10px' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-            <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <ShoppingBag size={19} color="#0066ff" />
+        <div style={{ minWidth: 0, flex: '1 1 240px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <ShoppingBag size={19} color="#0066ff" style={{ flexShrink: 0 }} />
               Pedidos Landings (COD)
             </h1>
-            <span style={{ 
-              background: 'rgba(0, 102, 255, 0.1)', 
-              color: '#0066ff', 
-              fontSize: '0.7rem', 
-              fontWeight: 800, 
-              padding: '2px 7px', 
-              borderRadius: '999px' 
-            }}>
-              CONTRA ENTREGA
+            <span className="nx-cod-pill">
+              COD
             </span>
           </div>
           <p style={{ margin: '2px 0 0 0', color: 'var(--muted, #64748b)', fontSize: '0.8rem' }}>
@@ -722,7 +877,7 @@ export default function LandingOrdersPage({ toast = () => {} }) {
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+        <div className="nx-orders-actions">
           {orders.length > 0 && (
             <button
               className="outline"
@@ -730,17 +885,17 @@ export default function LandingOrdersPage({ toast = () => {} }) {
               disabled={cleaningTest}
               title="Eliminar pedidos de prueba (Test / Prueba) o cancelados"
               style={{
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
                 gap: '4px',
                 fontSize: '0.76rem',
-                padding: '5px 10px',
+                padding: '6px 10px',
                 color: '#ef4444',
                 borderColor: 'rgba(239, 68, 68, 0.35)'
               }}
             >
               <Trash2 size={12} />
-              {cleaningTest ? 'Limpiando…' : 'Limpiar Pedidos de Prueba'}
+              {cleaningTest ? 'Limpiando…' : 'Limpiar Prueba'}
             </button>
           )}
 
@@ -748,7 +903,7 @@ export default function LandingOrdersPage({ toast = () => {} }) {
             className="outline" 
             onClick={() => loadOrders()} 
             disabled={loading}
-            style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', padding: '5px 10px' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', padding: '6px 11px' }}
           >
             <RefreshCw size={12} className={loading ? 'spin' : ''} />
             Actualizar
@@ -758,11 +913,11 @@ export default function LandingOrdersPage({ toast = () => {} }) {
             className="primary" 
             onClick={() => setShowMappingModal(true)}
             style={{ 
-              display: 'flex', 
+              display: 'inline-flex', 
               alignItems: 'center', 
-              gap: '4px', 
+              gap: '5px', 
               fontSize: '0.78rem', 
-              padding: '5px 11px' 
+              padding: '6px 12px' 
             }}
           >
             <SlidersHorizontal size={13} />
@@ -809,46 +964,47 @@ export default function LandingOrdersPage({ toast = () => {} }) {
 
       {/* Filter Toolbar */}
       <div className="nx-filter-bar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: '160px' }}>
-          <Search size={14} color="var(--muted, #64748b)" />
+        <div className="nx-search-wrap">
+          <Search size={14} className="nx-search-icon" />
           <input 
             type="text"
-            className="nx-filter-input"
+            className="nx-filter-input nx-search-input"
             placeholder="Buscar por cliente, teléfono, comuna, producto o SKU…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{ width: '100%' }}
           />
         </div>
 
-        {/* Landing filter */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span style={{ fontSize: '0.75rem', color: 'var(--muted, #64748b)', fontWeight: 700 }}>Landing:</span>
-          <select 
-            value={selectedLanding}
-            onChange={e => setSelectedLanding(e.target.value)}
-            className="nx-filter-input"
-          >
-            <option value="all">Todas las landings</option>
-            {landings.map(l => (
-              <option key={l.id} value={l.id}>{l.name} ({l.id})</option>
-            ))}
-          </select>
-        </div>
+        <div className="nx-filter-selects">
+          {/* Landing filter */}
+          <div className="nx-filter-field">
+            <span className="nx-filter-label">Landing</span>
+            <select 
+              value={selectedLanding}
+              onChange={e => setSelectedLanding(e.target.value)}
+              className="nx-filter-select"
+            >
+              <option value="all">Todas las landings</option>
+              {landings.map(l => (
+                <option key={l.id} value={l.id}>{l.name}</option>
+              ))}
+            </select>
+          </div>
 
-        {/* Status filter */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span style={{ fontSize: '0.75rem', color: 'var(--muted, #64748b)', fontWeight: 700 }}>Estado:</span>
-          <select 
-            value={selectedStatus}
-            onChange={e => setSelectedStatus(e.target.value)}
-            className="nx-filter-input"
-          >
-            <option value="all">Todos los estados</option>
-            {Object.entries(STATUS_CONFIG).map(([stKey, stVal]) => (
-              <option key={stKey} value={stKey}>{stVal.label}</option>
-            ))}
-          </select>
+          {/* Status filter */}
+          <div className="nx-filter-field">
+            <span className="nx-filter-label">Estado</span>
+            <select 
+              value={selectedStatus}
+              onChange={e => setSelectedStatus(e.target.value)}
+              className="nx-filter-select"
+            >
+              <option value="all">Todos los estados</option>
+              {Object.entries(STATUS_CONFIG).map(([stKey, stVal]) => (
+                <option key={stKey} value={stKey}>{stVal.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -857,7 +1013,7 @@ export default function LandingOrdersPage({ toast = () => {} }) {
         {orders.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '36px 14px', color: 'var(--muted, #64748b)' }}>
             <ShoppingBag size={36} style={{ margin: '0 auto 6px', opacity: 0.35 }} />
-            <h3 style={{ margin: '0 0 4px 0', fontSize: '0.92rem', color: 'var(--text, #0f172a)' }}>No hay pedidos contra entrega que coincidan</h3>
+            <h3 className="nx-empty-title">No hay pedidos contra entrega que coincidan</h3>
             <p style={{ margin: '0 0', fontSize: '0.78rem' }}>
               Cuando los clientes ordenen desde <b>pidedirecto.cyou</b>, aparecerán aquí en tiempo real para confirmación por WhatsApp y despacho.
             </p>

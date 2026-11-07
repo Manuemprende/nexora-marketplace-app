@@ -288,20 +288,170 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
         /* KPI Banner */
         .nx-kpi-banner {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 10px;
           margin-bottom: 16px;
+        }
+        @media (max-width: 900px) {
+          .nx-kpi-banner {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+          }
         }
         .nx-kpi-item {
           background: #ffffff;
           border: 1px solid #e2e8f0;
           border-radius: 9px;
-          padding: 12px 15px;
+          padding: 12px 14px;
           box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+          min-width: 0;
         }
         [data-theme="night"] .nx-kpi-item {
           background: #16263e !important;
           border-color: #2b3d57 !important;
+        }
+
+        /* Top Actions & Pro Period Filter Bar */
+        .nx-top-actions {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: nowrap;
+        }
+        @media (max-width: 640px) {
+          .nx-top-actions {
+            width: 100%;
+          }
+          .nx-top-actions > button {
+            flex: 1 1 auto;
+            justify-content: center;
+            white-space: nowrap;
+          }
+        }
+        .nx-period-filter-card {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 10px;
+          padding: 10px 12px;
+          margin-bottom: 14px;
+          border-radius: 10px;
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+        }
+        [data-theme="night"] .nx-period-filter-card {
+          background: #16263e !important;
+          border-color: #2b3d57 !important;
+        }
+        .nx-period-left {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+          min-width: 0;
+        }
+        .nx-period-segmented {
+          display: grid;
+          grid-template-columns: repeat(5, auto);
+          gap: 4px;
+          background: #f1f5f9;
+          padding: 3px;
+          border-radius: 8px;
+          border: 1px solid #e2e8f0;
+        }
+        [data-theme="night"] .nx-period-segmented {
+          background: #0f1c31 !important;
+          border-color: #233752 !important;
+        }
+        .nx-period-pill {
+          padding: 5px 11px;
+          border-radius: 6px;
+          font-size: 0.74rem;
+          font-weight: 700;
+          cursor: pointer;
+          border: 1px solid transparent;
+          background: transparent;
+          color: #64748b;
+          white-space: nowrap;
+          text-align: center;
+          transition: all 0.15s ease;
+        }
+        [data-theme="night"] .nx-period-pill {
+          color: #94a3b8;
+        }
+        .nx-period-pill.is-active {
+          background: #0066ff !important;
+          border-color: #3b82f6 !important;
+          color: #ffffff !important;
+          box-shadow: 0 2px 6px rgba(0, 102, 255, 0.3);
+        }
+        .nx-period-dates {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          align-items: center;
+        }
+        .nx-date-box {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          background: #f8fafc;
+          border: 1px solid #cbd5e1;
+          border-radius: 7px;
+          padding: 4px 8px;
+          min-width: 0;
+        }
+        [data-theme="night"] .nx-date-box {
+          background: #0f1c31 !important;
+          border-color: #2b3f5c !important;
+        }
+        .nx-date-box.is-custom {
+          border-color: #3b82f6 !important;
+        }
+        .nx-date-box span {
+          font-size: 0.68rem;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+          color: #64748b;
+          white-space: nowrap;
+        }
+        [data-theme="night"] .nx-date-box span {
+          color: #94a3b8;
+        }
+        .nx-date-box input[type="date"] {
+          border: none !important;
+          background: transparent !important;
+          color: inherit !important;
+          font-size: 0.75rem !important;
+          font-weight: 700 !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          width: 100% !important;
+          min-width: 0 !important;
+          outline: none !important;
+          height: 24px !important;
+        }
+        @media (max-width: 768px) {
+          .nx-period-left {
+            width: 100%;
+          }
+          .nx-period-label-txt {
+            display: none;
+          }
+          .nx-period-segmented {
+            width: 100%;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+          }
+          .nx-period-pill {
+            padding: 6px 4px;
+            font-size: 0.72rem;
+          }
+          .nx-period-dates {
+            width: 100%;
+          }
         }
 
         /* Landing Card */
@@ -549,41 +699,21 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-          <button 
-            className="outline" 
-            onClick={() => { const next = !soundEnabled; setSoundEnabled(next); localStorage.setItem('nexora-sales-alerts', next ? 'on' : 'off'); if (next) { playSaleSound(true); try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {} } }}
-            style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', padding: '5px 9px' }}
-            title={soundEnabled ? 'Sonido de venta activado' : 'Sonido silenciado'}
-          >
-            {soundEnabled ? <Volume2 size={13} color="#16a34a" /> : <VolumeX size={13} color="#94a3b8" />}
-            {soundEnabled ? 'Sonido ON' : 'Silencio'}
-          </button>
-
-          <button
-            className="outline"
-            onClick={() => triggerShopifyTestAlert()}
-            style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', padding: '5px 9px', borderColor: 'rgba(16, 185, 129, 0.45)', color: '#10b981' }}
-            title="Probar sonido Cha-Ching de Shopify + Notificaci?n nativa de Windows"
-          >
-            ?? Probar Cha-Ching
-          </button>
-
+        <div className="nx-top-actions">
           <button 
             className="outline" 
             onClick={() => loadMetrics()} 
             disabled={loading}
-            style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', padding: '5px 9px' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', padding: '6px 10px' }}
           >
             <RefreshCw size={13} className={loading ? 'spin' : ''} />
             Actualizar
           </button>
 
-          {/* Sutil botón de snippet en la barra superior con tooltip */}
           <button 
             className="outline" 
             onClick={() => setShowSnippetModal({ id: 'aerosleep', name: 'General' })}
-            style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', padding: '5px 9px', color: 'var(--muted, #64748b)' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', padding: '6px 10px', color: 'var(--muted, #64748b)' }}
             title="Ver snippet de integración y código JS para tu landing"
           >
             <Code size={13} />
@@ -593,7 +723,7 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
           <button 
             className="btnPrimary" 
             onClick={() => setShowAddModal(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: '5px', background: '#0066ff', color: '#fff', padding: '5px 12px', borderRadius: '6px', border: 'none', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#0066ff', color: '#fff', padding: '6px 12px', borderRadius: '7px', border: 'none', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}
           >
             <Plus size={14} />
             Registrar Landing
@@ -601,58 +731,39 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
         </div>
       </div>
 
-      {/* Date / Period Filter Bar */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: '10px',
-        padding: '10px 14px',
-        marginBottom: '14px',
-        borderRadius: '9px',
-        background: 'rgba(15, 23, 42, 0.35)',
-        border: '1px solid var(--border, #2b3d57)'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-          <Clock size={14} color="#3b82f6" />
-          <span style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--muted, #94a3b8)', marginRight: '4px' }}>
-            Filtrar período:
+      {/* Pro Date / Period Filter Bar */}
+      <div className="nx-period-filter-card">
+        <div className="nx-period-left">
+          <span className="nx-period-label-txt" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted, #94a3b8)' }}>
+            <Clock size={14} color="#3b82f6" />
+            Período:
           </span>
-          {[
-            ['today', 'Hoy'],
-            ['yesterday', 'Ayer'],
-            ['7d', '7 días'],
-            ['month', 'Este mes'],
-            ['all', 'Todo']
-          ].map(([id, labelText]) => {
-            const active = period === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => applyPresetPeriod(id)}
-                style={{
-                  padding: '5px 11px',
-                  borderRadius: '6px',
-                  fontSize: '0.76rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  border: active ? '1px solid #0066ff' : '1px solid rgba(148,163,184,0.25)',
-                  background: active ? '#0066ff' : 'transparent',
-                  color: active ? '#ffffff' : 'inherit',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                {labelText}
-              </button>
-            );
-          })}
+          <div className="nx-period-segmented">
+            {[
+              ['today', 'Hoy'],
+              ['yesterday', 'Ayer'],
+              ['7d', '7 días'],
+              ['month', 'Este mes'],
+              ['all', 'Todo']
+            ].map(([id, labelText]) => {
+              const active = period === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={'nx-period-pill' + (active ? ' is-active' : '')}
+                  onClick={() => applyPresetPeriod(id)}
+                >
+                  {labelText}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted, #94a3b8)' }}>
-            Desde:
+        <div className="nx-period-dates">
+          <label className={'nx-date-box' + (period === 'custom' ? ' is-custom' : '')}>
+            <span>Desde</span>
             <input
               type="date"
               value={dateFrom}
@@ -663,17 +774,10 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
                 if (!dateTo) setDateTo(todayStr);
                 setPeriod('custom');
               }}
-              style={{
-                padding: '4px 8px',
-                borderRadius: '6px',
-                border: period === 'custom' ? '1px solid #3b82f6' : '1px solid rgba(148,163,184,0.3)',
-                fontSize: '0.76rem',
-                fontWeight: 600
-              }}
             />
           </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted, #94a3b8)' }}>
-            Hasta:
+          <label className={'nx-date-box' + (period === 'custom' ? ' is-custom' : '')}>
+            <span>Hasta</span>
             <input
               type="date"
               value={dateTo}
@@ -685,27 +789,8 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
                 if (!dateFrom) setDateFrom(v);
                 setPeriod('custom');
               }}
-              style={{
-                padding: '4px 8px',
-                borderRadius: '6px',
-                border: period === 'custom' ? '1px solid #3b82f6' : '1px solid rgba(148,163,184,0.3)',
-                fontSize: '0.76rem',
-                fontWeight: 600
-              }}
             />
           </label>
-          {period === 'custom' && (
-            <span style={{
-              fontSize: '0.72rem',
-              fontWeight: 700,
-              padding: '3px 8px',
-              borderRadius: '999px',
-              background: 'rgba(59, 130, 246, 0.15)',
-              color: '#60a5fa'
-            }}>
-              {dateFrom} → {dateTo}
-            </span>
-          )}
         </div>
       </div>
 
