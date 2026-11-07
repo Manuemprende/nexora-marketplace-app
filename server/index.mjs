@@ -40,7 +40,7 @@ import {dropeaWebhookPath,receiveDropeaWebhook} from './dropea-notifications.mjs
 import {dropiClient} from './dropi.mjs';
 import {facebookService} from './facebook.mjs';
 import {getLandingBySlug,listLandings,createOrUpdateLiveLanding,deleteLiveLanding,createLiveLandingOrder,getLiveStock,getRadarWinners} from './live-landings.mjs';
-import {trackVisit,receiveLandingOrder,getLandingsMetrics,registerLanding,deleteLanding,getLandingOrders,getAllLandingOrders,updateLandingOrderStatus,updateLandingOrderDetails,sendOrderToSupplier,quoteLandingOrderShipping,updateLandingMapping} from './landings.mjs';
+import {trackVisit,receiveLandingOrder,getLandingsMetrics,registerLanding,deleteLanding,getLandingOrders,getAllLandingOrders,updateLandingOrderStatus,updateLandingOrderDetails,sendOrderToSupplier,quoteLandingOrderShipping,updateLandingMapping,toggleLandingCampaign} from './landings.mjs';
 import http from 'node:http';
 import { randomBytes, createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -413,6 +413,8 @@ export function createApi({dbPath=resolve('data/nexora.sqlite'),allowDemo=true,r
       if(orderQuoteDropiMatch && method==='POST') return send(200, await quoteLandingOrderShipping(db, decodeURIComponent(orderQuoteDropiMatch[1])));
       const landingMappingMatch = /^\/api\/landings\/mapping\/([^/]+)$/.exec(path);
       if(landingMappingMatch && method==='PUT') return send(200, await updateLandingMapping(db, decodeURIComponent(landingMappingMatch[1]), await readBody(req), user.id));
+      const landingCampaignMatch = /^\/api\/landings\/campaign\/([^/]+)$/.exec(path);
+      if(landingCampaignMatch && (method==='PUT' || method==='POST')) return send(200, toggleLandingCampaign(db, decodeURIComponent(landingCampaignMatch[1]), await readBody(req)));
       if(path==='/api/landings/metrics'&&method==='GET') return send(200, getLandingsMetrics(db, Object.fromEntries(url.searchParams.entries())));
       if(path==='/api/landings/register'&&method==='POST') return send(200, await registerLanding(db, await readBody(req), user.id));
       const landingOrdersMatch = /^\/api\/landings\/orders\/([^/]+)$/.exec(path);

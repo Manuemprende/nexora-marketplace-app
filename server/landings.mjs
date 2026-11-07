@@ -310,7 +310,18 @@ export function receiveLandingOrder(db, input = {}) {
 /**
  * 3. Métricas para la vista de tarjetas de Landings (con soporte de filtro por fechas: Hoy, 7d, Mes, Todo, Desde/Hasta)
  */
+function ensureCampaignColumn(db) {
+  try {
+    const cols = db.prepare("PRAGMA table_info('landings')").all().map(c => c.name);
+    if (!cols.includes('campaign_active')) {
+      db.prepare('ALTER TABLE landings ADD COLUMN campaign_active INTEGER NOT NULL DEFAULT 0').run();
+      db.prepare("UPDATE landings SET campaign_active = 1 WHERE id = 'pelota-saltarina'").run();
+    }
+  } catch {}
+}
+
 export function getLandingsMetrics(db, query = {}) {
+  ensureCampaignColumn(db);
   const activeThreshold = new Date(Date.now() - 3 * 60 * 1000).toISOString();
   const range = resolveDateRange(query);
   const { period, from, to, today, utcToday } = range;
@@ -426,6 +437,7 @@ export function getLandingsMetrics(db, query = {}) {
       supplier_platform: landing.supplier_platform || 'Dropea',
       supplier_product_id: landing.supplier_product_id || '',
       auto_fulfillment: landing.auto_fulfillment || 'none',
+      campaign_active: Boolean(landing.campaign_active),
       created_at: landing.created_at,
       active_now: activeNow,
       visits_today: visitsPeriod,
@@ -882,4 +894,34 @@ export function getLandingOrders(db, id) {
   const landingId = sanitizeId(id);
   const orders = db.prepare('SELECT * FROM landing_orders WHERE landing_id=? ORDER BY created_at DESC LIMIT 100').all(landingId);
   return { landing_id: landingId, orders };
+}
+
+export function toggleLandingCampaign(db, id, input = {}) {
+  ensureCampaignColumn(db);
+  const landingId = sanitizeId(id || input.id);
+  const existing = db.prepare('SELECT * FROM landings WHERE id=?').get(landingId);
+  if (!existing) fail(404, 'Landing no encontrada');
+
+  let nextActive = existing.campaign_active ? 1 : 0;
+  if (typeof input.campaign_active === 'boolean' || typeof input.campaign_active === 'number') {
+    nextActive = input.campaign_active ? 1 : 0;
+  } else if (input.toggle) {
+    nextActive = existing.campaign_active ? 0 : 1;
+  }
+
+  db.prepare('UPDATE landings SET campaign_active=? WHERE id=?').run(nextActive, landingId);
+
+  let visitsCleared = 0;
+  if (input.reset_visits) {
+    const res = db.prepare('DELETE FROM landing_visits WHERE landing_id=?').run(landingId);
+    visitsCleared = res.changes || 0;
+  }
+
+  return {
+    ok: true,
+    id: landingId,
+    name: existing.name,
+    campaign_active: Boolean(nextActive),
+    visits_cleared: visitsCleared
+  };
 }

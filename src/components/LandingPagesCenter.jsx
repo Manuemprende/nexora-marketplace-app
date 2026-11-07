@@ -235,6 +235,26 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
     }
   };
 
+  const handleToggleCampaign = async (landing, resetVisits = false) => {
+    if (resetVisits && !window.confirm(`¿Limpiar a 0 todas las visitas de prueba acumuladas en "${landing.name}"?`)) return;
+    try {
+      const res = await api(`/landings/campaign/${encodeURIComponent(landing.id)}`, {
+        method: 'PUT',
+        body: resetVisits
+          ? { campaign_active: Boolean(landing.campaign_active), reset_visits: true }
+          : { toggle: true }
+      });
+      if (resetVisits) {
+        toast(`🧹 Visitas de "${landing.name}" reiniciadas a 0`);
+      } else {
+        toast(res.campaign_active ? `🟢 "${landing.name}" marcada EN CAMPAÑA (Activa)` : `⚪ "${landing.name}" marcada EN PAUSA`);
+      }
+      loadMetrics(true);
+    } catch (e) {
+      toast('Error actualizando estado de landing: ' + e.message);
+    }
+  };
+
   const handleDeleteLanding = async (id, name) => {
     if (!window.confirm(`¿Seguro que deseas eliminar el monitoreo de la landing "${name}"?`)) return;
     try {
@@ -701,6 +721,27 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
             {data.totals?.total_active_now || 0}
             <span style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--muted, #64748b)' }}>activos ahora</span>
           </div>
+          <div style={{ marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+            {(data.landings || []).filter(l => l.active_now > 0).length > 0 ? (
+              (data.landings || []).filter(l => l.active_now > 0).map(l => (
+                <span key={l.id} style={{
+                  fontSize: '0.68rem',
+                  fontWeight: 700,
+                  padding: '1px 7px',
+                  borderRadius: '999px',
+                  background: 'rgba(34, 197, 94, 0.16)',
+                  color: '#4ade80',
+                  border: '1px solid rgba(34, 197, 94, 0.35)'
+                }}>
+                  🟢 {l.name.split('·')[0].trim()}: {l.active_now}
+                </span>
+              ))
+            ) : (
+              <span style={{ fontSize: '0.68rem', color: 'var(--muted, #64748b)' }}>
+                Sin visitantes activos en los últimos 3 min
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="nx-kpi-item">
@@ -761,39 +802,48 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '14px' }}>
           {[...data.landings].sort((a, b) => {
-            const aRun = (a.active_now > 0 ? 1000 : 0) + (a.visits_today > 0 ? 100 : 0) + (a.orders_today > 0 ? 50 : 0);
-            const bRun = (b.active_now > 0 ? 1000 : 0) + (b.visits_today > 0 ? 100 : 0) + (b.orders_today > 0 ? 50 : 0);
-            return bRun - aRun || (b.visits_today || 0) - (a.visits_today || 0);
+            const aCamp = a.campaign_active ? 10000 : 0;
+            const bCamp = b.campaign_active ? 10000 : 0;
+            const aLive = a.active_now > 0 ? 500 : 0;
+            const bLive = b.active_now > 0 ? 500 : 0;
+            return (bCamp + bLive) - (aCamp + aLive) || (b.visits_today || 0) - (a.visits_today || 0);
           }).map(landing => {
-            const isRunning = (landing.active_now > 0) || (landing.visits_today > 0) || (landing.orders_today > 0);
+            const isRunning = Boolean(landing.campaign_active);
             const isLiveNow = landing.active_now > 0;
             return (
               <div 
                 key={landing.id} 
-                className={`nx-land-card${isRunning ? ' is-running' : ''}${isLiveNow ? ' is-live-now' : ''}`}
+                className={`nx-land-card${isRunning ? ' is-running' : ''}${isRunning && isLiveNow ? ' is-live-now' : ''}`}
               >
                 {/* Header of Card */}
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', marginBottom: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px', flexWrap: 'wrap' }}>
                       <Globe size={18} color={isRunning ? '#22c55e' : '#0066ff'} />
                       <h3 className="nx-land-name" style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>
                         {landing.name}
                       </h3>
-                      {isRunning && (
-                        <span style={{
-                          fontSize: '0.64rem',
+                      <button
+                        type="button"
+                        onClick={() => handleToggleCampaign(landing, false)}
+                        title={isRunning ? 'Clic para pausar campaña (quitar contorno verde)' : 'Clic para marcar esta landing EN CAMPAÑA (activar contorno verde)'}
+                        style={{
+                          fontSize: '0.66rem',
                           fontWeight: 800,
-                          padding: '1px 6px',
+                          padding: '2px 8px',
                           borderRadius: '999px',
-                          background: 'rgba(34, 197, 94, 0.18)',
-                          color: '#4ade80',
-                          border: '1px solid rgba(34, 197, 94, 0.45)',
-                          letterSpacing: '0.03em'
-                        }}>
-                          ACTIVA
-                        </span>
-                      )}
+                          cursor: 'pointer',
+                          background: isRunning ? 'rgba(34, 197, 94, 0.2)' : 'rgba(148, 163, 184, 0.12)',
+                          color: isRunning ? '#4ade80' : '#94a3b8',
+                          border: isRunning ? '1px solid rgba(34, 197, 94, 0.55)' : '1px solid rgba(148, 163, 184, 0.28)',
+                          letterSpacing: '0.02em',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        {isRunning ? '🟢 EN CAMPAÑA' : '⚪ Activar Campaña'}
+                      </button>
                     </div>
 
                     {/* Green Live Pill */}
@@ -925,6 +975,14 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
                   </button>
 
                   {/* Botón de tracking chiquito y discreto */}
+                  <button
+                    className="nx-btn-tiny"
+                    onClick={() => handleToggleCampaign(landing, true)}
+                    title="Limpiar visitas de prueba acumuladas a 0"
+                  >
+                    <RefreshCw size={12} />
+                  </button>
+
                   <button 
                     className="nx-btn-tiny" 
                     onClick={() => setShowSnippetModal(landing)}
