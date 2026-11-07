@@ -1081,12 +1081,25 @@ export function getLandingLiveDashboard(db, query = {}) {
     const topProducts = db.prepare(`SELECT o.product_name AS name, COUNT(*) AS orders, COALESCE(SUM(o.total_price),0) AS revenue
       FROM landing_orders o WHERE o.landing_id=? AND o.product_name<>''${productRange.sql}
       GROUP BY o.product_name ORDER BY orders DESC, revenue DESC LIMIT 5`).all(landing.id, ...productRange.args);
-    const customers = db.prepare(`SELECT COUNT(DISTINCT o.customer_phone) AS total,
+    const orderCustomers = db.prepare(`SELECT COUNT(DISTINCT o.customer_phone) AS total,
       COUNT(DISTINCT CASE WHEN NOT EXISTS (SELECT 1 FROM landing_orders p
         WHERE p.landing_id=o.landing_id AND p.customer_phone=o.customer_phone AND p.created_at<o.created_at)
         THEN o.customer_phone END) AS new_customers
       FROM landing_orders o WHERE o.landing_id=? AND TRIM(COALESCE(o.customer_phone,''))<>''${productRange.sql}`)
       .get(landing.id, ...productRange.args);
+
+    const multiSessionVisitors = db.prepare(`SELECT COUNT(*) as c FROM (
+      SELECT s.visitor_id FROM landing_sessions s
+      WHERE s.landing_id=?
+      GROUP BY s.visitor_id HAVING COUNT(*) > 1
+    )`).get(landing.id)?.c || 0;
+    const totalVisitors = Number(landing.unique_visitors_today || 0);
+    const recurringVisitors = Math.min(totalVisitors, multiSessionVisitors);
+    const newVisitors = Math.max(0, totalVisitors - recurringVisitors);
+
+    const customers = (orderCustomers?.total > 0)
+      ? { total: orderCustomers.total, new_customers: orderCustomers.new_customers, recurring_customers: Math.max(0, orderCustomers.total - orderCustomers.new_customers), type: 'orders' }
+      : { total: totalVisitors, new_customers: newVisitors, recurring_customers: recurringVisitors, type: 'visitors' };
     const behaviorRows = db.prepare(`SELECT stage,COUNT(DISTINCT session_id) AS c FROM landing_sessions
       WHERE landing_id=? AND last_ping>=? GROUP BY stage`).all(landing.id, liveSince);
     const recentOrderCount = db.prepare(`SELECT COUNT(*) AS c FROM landing_orders WHERE landing_id=? AND created_at>=?`).get(landing.id, recentOrderSince)?.c || 0;

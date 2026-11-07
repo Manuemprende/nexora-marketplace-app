@@ -55,99 +55,6 @@
       flex-shrink: 0;
     }
 
-    /* Top KPI Banner */
-    #nx-live-compras .nxlc-kpis {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-    #nx-live-compras .nxlc-kpi {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      background: #ffffff;
-      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
-      padding: 10px 14px;
-      min-width: 0;
-    }
-    [data-theme="night"] #nx-live-compras .nxlc-kpi {
-      background: #16263e;
-      border-color: #2b3d57;
-      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
-    }
-    #nx-live-compras .nxlc-kpi-left {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-      flex: 1;
-    }
-    #nx-live-compras .nxlc-kpi-icon {
-      width: 32px;
-      height: 32px;
-      background: rgba(59, 130, 246, 0.12);
-      border: 1px solid rgba(59, 130, 246, 0.25);
-      border-radius: 8px;
-      display: grid;
-      place-items: center;
-      color: #2563eb;
-      flex: none;
-    }
-    [data-theme="night"] #nx-live-compras .nxlc-kpi-icon {
-      background: rgba(59, 130, 246, 0.18);
-      border-color: rgba(96, 165, 250, 0.3);
-      color: #60a5fa;
-    }
-    #nx-live-compras svg { width: 16px; height: 16px; display: block; }
-    #nx-live-compras .nxlc-kpi label {
-      display: block;
-      font-size: 11px;
-      font-weight: 600;
-      color: #64748b;
-      margin: 0 0 2px;
-      line-height: 1.1;
-    }
-    [data-theme="night"] #nx-live-compras .nxlc-kpi label {
-      color: #94a3b8;
-    }
-    #nx-live-compras .nxlc-kpi strong {
-      display: block;
-      font-size: 19px;
-      letter-spacing: -0.03em;
-      font-weight: 800;
-      line-height: 1.15;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      color: #0f172a;
-    }
-    [data-theme="night"] #nx-live-compras .nxlc-kpi strong {
-      color: #ffffff;
-    }
-    #nx-live-compras .nxlc-kpi small {
-      font-size: 10px;
-      font-weight: 600;
-      color: #16a34a;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      margin-top: 2px;
-      white-space: nowrap;
-    }
-    [data-theme="night"] #nx-live-compras .nxlc-kpi small {
-      color: #4ade80;
-    }
-    #nx-live-compras .nxlc-spark {
-      width: 48px;
-      height: 22px;
-      flex-shrink: 0;
-      opacity: 0.85;
-    }
-
     /* Unified Single-Line Section Header & Filter Toolbar */
     #nx-live-compras .nxlc-section-head {
       display: flex;
@@ -993,11 +900,12 @@
       [liveCheckout, 'purple', 'En checkout'],
       [livePurchases, 'green', 'Compras']
     ];
-    var customers = l.customers || { new_customers: 0, total: 0 };
-    var newCust = Number(customers.new_customers || l.orders_today || 0);
-    var retCust = Math.max(0, Number(customers.total || 0) - newCust);
-    var custPct = customers.total ? Math.min(100, Math.round((newCust / customers.total) * 100)) : (newCust > 0 ? 100 : 0);
-    var retPct = customers.total ? Math.min(100, Math.round((retCust / customers.total) * 100)) : 0;
+    var customers = l.customers || { new_customers: 0, recurring_customers: 0, total: 0 };
+    var newCust = Number(customers.new_customers != null ? customers.new_customers : (l.orders_today || 0));
+    var retCust = Number(customers.recurring_customers != null ? customers.recurring_customers : Math.max(0, Number(customers.total || 0) - newCust));
+    var totalCust = Math.max(1, newCust + retCust);
+    var custPct = Math.min(100, Math.round((newCust / totalCust) * 100));
+    var retPct = Math.min(100, Math.round((retCust / totalCust) * 100));
 
     var sessionsCount = Number(l.sessions_today || 0);
     var uniqueCount = Number(l.unique_visitors_today || 0);
@@ -1105,17 +1013,6 @@
 
     page.innerHTML =
       '<div class="nxlc-wrap">' +
-        '<div class="nxlc-kpis">' +
-          kpis.map(function (k) {
-            return '<div class="nxlc-kpi">' +
-              '<div class="nxlc-kpi-left">' +
-                '<span class="nxlc-kpi-icon">' + icon(k[0]) + '</span>' +
-                '<div style="min-width:0"><label>' + k[1] + '</label><strong>' + k[2] + '</strong><small>' + k[3] + '</small></div>' +
-              '</div>' +
-              sparkSvg(k[4]) +
-            '</div>';
-          }).join('') +
-        '</div>' +
         '<div class="nxlc-section-head">' +
           '<div class="nxlc-title-group">' +
             '<h2>' + icon('layers') + 'Mis Landings Activas (' + rows.length + ')</h2>' +
