@@ -30,10 +30,32 @@ export async function processWhatsappQueue(db,{sender,send,connected}){
  catch{db.prepare("UPDATE whatsapp_outbox SET status=CASE WHEN status IN ('sent','delivered','read') THEN status ELSE 'uncertain' END,error=CASE WHEN status IN ('sent','delivered','read') THEN '' ELSE 'No se confirmó el envío. Revisa WhatsApp antes de repetirlo.' END,updated_at=? WHERE id=?").run(now(),row.id);}
  }
 }
-export function createWhatsappService(db,{modules=async()=>{const [baileys,qrcode,pino]=await Promise.all([import('@whiskeysockets/baileys'),import('qrcode'),import('pino')]);return {baileys,qrcode:qrcode.default,pino:pino.default};},keyPath}={}){
+export function createWhatsappService(db,{modules=async()=>{const [baileys,qrcode,pino]=await Promise.all([import('@whiskeysockets/baileys'),import('qrcode'),import('pino')]);return {baileys,qrcode:qrcode.default,pino:pino.default};},keyPath,onIncomingMessage}={}){
  let sock=null,qr=null,qrAt=null,state='disconnected',loading=null,generation=0,timer=null,retries=0,draining=false,disposed=false;
  const config=()=>db.prepare('SELECT * FROM whatsapp_connection WHERE id=1').get();
- const status=(includeQr=false)=>({state,connected:state==='connected',phone:config().sender_jid.split('@')[0],connected_at:config().connected_at,message:config().last_error,...(includeQr?{qr:qr&&Date.now()-qrAt<60000?qr:null,qr_expires_at:qrAt?new Date(qrAt+60000).toISOString():null}:{})});
+ const cloudConfig=()=>({token:process.env.WHATSAPP_ACCESS_TOKEN||'',phoneId:process.env.WHATSAPP_PHONE_NUMBER_ID||'',wabaId:process.env.WHATSAPP_WABA_ID||'',verifyToken:process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN||'',appSecret:process.env.WHATSAPP_APP_SECRET||''});
+ const status=(includeQr=false)=>{const cc=cloudConfig(),hasCloud=Boolean(cc.token&&cc.phoneId);return {state:hasCloud&&state!=='connected'?'cloud_api':state,connected:state==='connected'||hasCloud,cloud_api_configured:hasCloud,phone:config().sender_jid?config().sender_jid.split('@')[0]:(hasCloud?cc.phoneId:''),connected_at:config().connected_at,message:config().last_error,...(includeQr?{qr:qr&&Date.now()-qrAt<60000?qr:null,qr_expires_at:qrAt?new Date(qrAt+60000).toISOString():null}:{})};};
+ async function sendText(rawPhone,textBody){
+  const clean=String(rawPhone||'').replace(/[^0-9]/g,'');
+  const normPhone=clean.startsWith('56')?clean:`56${clean.replace(/^0+/,'')}`;
+  if(normPhone.length<10)fail(400,'Teléfono de destinatario inválido para WhatsApp');
+  const cc=cloudConfig();
+  if(cc.token&&cc.phoneId){
+   const resp=await fetch(`https://graph.facebook.com/v20.0/${encodeURIComponent(cc.phoneId)}/messages`,{method:'POST',headers:{Authorization:`Bearer ${cc.token}`,'Content-Type':'application/json'},body:JSON.stringify({messaging_product:'whatsapp',recipient_type:'individual',to:normPhone,type:'text',text:{preview_url:false,body:String(textBody||'')}})});
+   const data=await resp.json().catch(()=>({}));
+   if(!resp.ok)fail(502,data?.error?.message||'Error enviando mensaje por WhatsApp Cloud API');
+   return {ok:true,channel:'cloud_api',phone:normPhone,remote_id:data?.messages?.[0]?.id||uuid()};
+  }
+  if(state==='connected'&&sock){
+   const current=sock;
+   const result=await current.onWhatsApp(normPhone).catch(()=>null);
+   const jid=result?.find(x=>x.exists)?.jid||`${normPhone}@s.whatsapp.net`;
+   const messageId=randomBytes(10).toString('hex').toUpperCase();
+   await current.sendMessage(jid,{text:String(textBody||'')},{messageId});
+   return {ok:true,channel:'baileys',phone:normPhone,remote_id:messageId};
+  }
+  return {ok:false,channel:'wa_me',phone:normPhone,error:'WhatsApp automático no conectado. Usa el enlace wa.me o conecta tu QR en Configuración → Integraciones → WhatsApp.'};
+ }
  async function drain(){if(draining||state!=='connected'||!sock)return;draining=true;const current=sock;try{await processWhatsappQueue(db,{sender:config().sender_jid,connected:true,send:async(phone,pdf,saleId,messageId)=>{if(state!=='connected'||sock!==current)throw Error('Disconnected');const result=await current.onWhatsApp(phone);const person=result?.find(x=>x.exists);if(!person)throw Error('Recipient not available');const sale=db.prepare('SELECT number FROM sales WHERE id=?').get(saleId);await current.sendMessage(person.jid,{document:pdf,mimetype:'application/pdf',fileName:'MEIBO-comprobante-'+String(sale.number).padStart(6,'0')+'.pdf',caption:'Tu comprobante de compra MEIBO. Documento interno sin validez tributaria.'},{messageId});}});}finally{draining=false;if(state==='connected'&&db.prepare("SELECT 1 FROM whatsapp_outbox WHERE status='queued' LIMIT 1").get()){clearTimeout(timer);timer=setTimeout(()=>drain().catch(()=>{}),1000);timer.unref();}}}
  async function connect(){if(disposed)fail(409,'Servicio detenido');if(loading)return loading;if(sock&&['connecting','qr','connected'].includes(state))return status(true);const gen=++generation;db.prepare("UPDATE whatsapp_connection SET enabled=1,last_error='' WHERE id=1").run();state='connecting';loading=(async()=>{try{const {baileys:b,qrcode,pino}=await modules(),logger=pino({level:'silent'}),auth=await whatsappAuth(db,{keyPath,module:b});if(gen!==generation||disposed)return status();const socket=b.default({auth:{creds:auth.state.creds,keys:b.makeCacheableSignalKeyStore({get:(...args)=>gen===generation?auth.state.keys.get(...args):Promise.resolve({}),set:(...args)=>gen===generation?auth.state.keys.set(...args):Promise.resolve()},logger)},logger,browser:['MEIBO','Chrome','1.0.0'],syncFullHistory:false,shouldSyncHistoryMessage:()=>false,markOnlineOnConnect:false,shouldIgnoreJid:jid=>jid?.endsWith('@g.us')||jid==='status@broadcast',getMessage:async()=>undefined});sock=socket;
  socket.ev.on('creds.update',()=>{if(gen===generation&&!disposed)try{auth.saveCreds();}catch{state='error';db.prepare("UPDATE whatsapp_connection SET last_error='No se pudo guardar la sesión de WhatsApp.' WHERE id=1").run();}});
@@ -43,10 +65,11 @@ export function createWhatsappService(db,{modules=async()=>{const [baileys,qrcod
  else if(config().enabled&&retries<6){state='reconnecting';const delay=Math.min(60000,2000*2**retries++);clearTimeout(timer);timer=setTimeout(()=>connect().catch(()=>{}),delay);timer.unref();}else db.prepare("UPDATE whatsapp_connection SET last_error='No se pudo restablecer la conexión. Vuelve a conectar WhatsApp.' WHERE id=1").run();}
  }catch{if(gen===generation)db.prepare("UPDATE whatsapp_connection SET last_error='No se pudo completar la conexión de WhatsApp.' WHERE id=1").run();}});
  socket.ev.on('messages.update',events=>{if(gen!==generation||disposed)return;for(const event of events){if(!event.key?.fromMe||!event.key.id)continue;const ack=event.update?.status;if(ack>=2){const next=ack>=4?'read':ack===3?'delivered':'sent';db.prepare("UPDATE whatsapp_outbox SET status=CASE WHEN status='read' OR status='delivered' AND ?='sent' THEN status ELSE ? END,error='',updated_at=? WHERE remote_id=? AND status IN ('sending','sent','delivered','read','uncertain')").run(next,next,now(),event.key.id);}}});
+ socket.ev.on('messages.upsert',async({messages,type})=>{if(gen!==generation||disposed||type!=='notify'||!onIncomingMessage)return;for(const msg of messages||[]){try{if(msg.key?.fromMe||!msg.message||!msg.key?.remoteJid||msg.key.remoteJid.endsWith('@g.us')||msg.key.remoteJid==='status@broadcast')continue;const body=(msg.message.conversation||msg.message.extendedTextMessage?.text||msg.message.buttonsResponseMessage?.selectedDisplayText||msg.message.listResponseMessage?.title||msg.message.templateButtonReplyMessage?.selectedDisplayText||'').trim();if(!body)continue;const senderPhone=String(msg.key.remoteJid.split('@')[0]||'').replace(/[^0-9]/g,'');await onIncomingMessage({phone:senderPhone,text:body,remoteId:msg.key.id||uuid(),channel:'baileys'});}catch{}}});
  return status(true);
  }catch{state='error';db.prepare("UPDATE whatsapp_connection SET last_error='No se pudo iniciar WhatsApp. Revisa la conexión y vuelve a intentarlo.' WHERE id=1").run();return status(true);}finally{loading=null;}})();return loading;}
  async function disconnect(){generation++;clearTimeout(timer);const current=sock;sock=null;qr=null;qrAt=null;state='disconnected';db.prepare("UPDATE whatsapp_connection SET enabled=0,sender_jid='',connected_at=NULL,last_error='' WHERE id=1").run();db.prepare('DELETE FROM whatsapp_auth').run();db.prepare("UPDATE whatsapp_outbox SET status='cancelled',error='WhatsApp fue desconectado antes del envío.',updated_at=? WHERE status='queued'").run(now());try{await current?.logout();}catch{}try{current?.end(undefined);}catch{}}
  function start(){db.prepare("UPDATE whatsapp_outbox SET status='uncertain',error='El servicio reinició durante el envío. Revisa antes de repetirlo.',updated_at=? WHERE status='sending'").run(now());if(config().enabled)connect().catch(()=>{});}
  function stop(){disposed=true;generation++;clearTimeout(timer);try{sock?.end(undefined);}catch{}sock=null;}
- return {status,connect,disconnect,drain,start,stop};
+ return {status,connect,disconnect,drain,sendText,start,stop};
 }

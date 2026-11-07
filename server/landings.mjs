@@ -1,13 +1,27 @@
 /**
  * Nexora - Módulo de Landing Pages Independientes (pidedirecto.cyou)
  * Monitoreo en tiempo real (visitas activas, visitas hoy, conversiones),
- * recepción de pedidos contra entrega (COD), SKU Maestro y sincronización a Dropea/Dropi.
+ * recepción de pedidos contra entrega (COD), confirmación WhatsApp auditada,
+ * validación pre-despacho y sincronización real a Dropi MCP / Bodega.
  */
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHmac, timingSafeEqual } from 'node:crypto';
 import { uuid, now, transaction } from './database.mjs';
 import { fail, text, integer } from './service.mjs';
 import { dropiClient } from './dropi.mjs';
 import { createDropiOrderViaMcp, quoteDropiShippingViaMcp } from './dropi-oauth.mjs';
+
+export const VALID_LANDING_STATUSES = [
+  'pending',
+  'awaiting_confirmation',
+  'confirmed',
+  'needs_review',
+  'cancelled',
+  'sent_to_supplier',
+  'supplier_error',
+  'paid',
+  'shipped',
+  'delivered'
+];
 
 function getLocalDateString(dateObj = new Date()) {
   try {
@@ -66,6 +80,155 @@ function sanitizeId(raw = '') {
     .replace(/^-|-$/g, '');
 }
 
+export function normalizeChilePhone(raw = '') {
+  const digits = String(raw || '').replace(/[^0-9]/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('56') && digits.length >= 11) return digits;
+  return `56${digits.replace(/^0+/, '')}`;
+}
+
+export function ensureLandingOrderSchema(db) {
+  try {
+    const cols = new Set(db.prepare("PRAGMA table_info('landing_orders')").all().map(c => c.name));
+    if (cols.size > 0) {
+      const additions = [
+        ['confirmed_at', 'TEXT'],
+        ['confirmation_source', 'TEXT'],
+        ['confirmation_reply', 'TEXT'],
+        ['confirmation_sent_at', 'TEXT'],
+        ['idempotency_key', 'TEXT'],
+        ['dispatch_error', 'TEXT'],
+        ['supplier_order_id', 'TEXT'],
+        ['guide_number', 'TEXT'],
+        ['tracking_url', 'TEXT']
+      ];
+      for (const [col, type] of additions) {
+        if (!cols.has(col)) {
+          db.prepare(`ALTER TABLE landing_orders ADD COLUMN ${col} ${type}`).run();
+        }
+      }
+    }
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS whatsapp_confirmation_logs (
+        id TEXT PRIMARY KEY,
+        landing_order_id TEXT NOT NULL,
+        order_number INTEGER,
+        phone TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        message_text TEXT,
+        parsed_intent TEXT,
+        status_before TEXT,
+        status_after TEXT,
+        remote_message_id TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_wa_conf_logs_order ON whatsapp_confirmation_logs(landing_order_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS whatsapp_webhook_events (
+        event_id TEXT PRIMARY KEY,
+        channel TEXT NOT NULL,
+        phone TEXT,
+        payload_json TEXT,
+        processed_at TEXT NOT NULL
+      );
+    `);
+  } catch {}
+}
+
+function logWhatsAppConfirmationEvent(db, entry) {
+  ensureLandingOrderSchema(db);
+  db.prepare(`
+    INSERT INTO whatsapp_confirmation_logs (
+      id, landing_order_id, order_number, phone, direction, channel,
+      message_text, parsed_intent, status_before, status_after, remote_message_id, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    randomUUID(),
+    entry.landing_order_id,
+    entry.order_number || null,
+    entry.phone || '',
+    entry.direction || 'operator',
+    entry.channel || 'manual',
+    entry.message_text || '',
+    entry.parsed_intent || '',
+    entry.status_before || '',
+    entry.status_after || '',
+    entry.remote_message_id || null,
+    now()
+  );
+}
+
+export function buildWhatsAppConfirmationMessage(order) {
+  const totalFormatted = Number(order.total_price || 0).toLocaleString('es-CL');
+  const addressPart = [order.customer_address, order.customer_commune, order.customer_region]
+    .filter(Boolean)
+    .join(', ');
+  return (
+    `¡Hola ${order.customer_name}! 👋 Te escribimos de *${order.product_name || 'nuestra tienda'}* por tu pedido contra entrega #${order.order_number || '1'}:\n\n` +
+    `📦 *Producto:* ${order.pack_selected || '1 Unidad'}\n` +
+    `💰 *Total a pagar al recibir:* $${totalFormatted}\n` +
+    `📍 *Dirección de envío:* ${addressPart || 'Pendiente confirmar'}\n\n` +
+    `Por favor responde a este mensaje:\n` +
+    `✅ Responde *SÍ* para confirmar tu pedido y dirección exacta.\n` +
+    `❌ Responde *NO* si deseas cancelar el pedido.\n` +
+    `✏️ Si necesitas corregir calle, numeración o agregar referencia, escríbela aquí.`
+  );
+}
+
+export function validateOrderCompleteness(order) {
+  const errors = [];
+  const name = String(order.customer_name || '').trim();
+  const phone = normalizeChilePhone(order.customer_phone);
+  const address = String(order.customer_address || '').trim();
+  const commune = String(order.customer_commune || '').trim();
+  const region = String(order.customer_region || 'Región Metropolitana').trim();
+  const sku = String(order.master_sku || '').trim();
+  const total = Number(order.total_price || 0);
+
+  if (!name || name.length < 2) errors.push('Nombre del cliente incompleto');
+  if (!phone || phone.length < 10) errors.push('Teléfono inválido o incompleto');
+  if (!address || address.length < 4) errors.push('Dirección de calle y numeración incompleta');
+  if (!commune || commune.length < 2) errors.push('Comuna de despacho requerida');
+  if (!region) errors.push('Región requerida');
+  if (!sku) errors.push('SKU maestro requerido');
+  if (!(total > 0)) errors.push('Total del pedido debe ser mayor a $0');
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    normalized: { name, phone, address, commune, region, sku, total }
+  };
+}
+
+export function parseWhatsAppReplyIntent(rawText = '') {
+  const clean = String(rawText || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  if (!clean) return 'ambiguous';
+
+  // Reject patterns
+  if (
+    /^(no|2|cancelar|cancelo|rechazar|rechazo|anular|no quiero|no lo quiero|me equivoque|ya no)\b/.test(clean) ||
+    clean === 'no' ||
+    clean === 'cancelar'
+  ) {
+    return 'reject';
+  }
+
+  // Confirm patterns (without contradictory 'no' or address change caveats)
+  const hasConfirmWord = /^(si|1|confirmo|confirmado|confirmar|ok|okay|dale|de acuerdo|correcto|si confirmo|acepto|todo bien|esta bien|envienlo|enviar)\b/.test(clean);
+  const hasDoubtOrChange = /\b(pero|cambiar|cambio|otra direccion|equivocad|falta|cual|cuando|donde|precio|\?)\b/.test(clean);
+  if (hasConfirmWord && !hasDoubtOrChange && clean.length <= 60) {
+    return 'confirm';
+  }
+
+  return 'ambiguous';
+}
+
 /**
  * Endpoint 1: Track visitor ping / heartbeat
  */
@@ -82,7 +245,6 @@ export function trackVisit(db, input = {}) {
   const currentIso = now();
 
   transaction(db, () => {
-    // 1. Ensure landing exists in `landings`
     const landing = db.prepare('SELECT id FROM landings WHERE id=?').get(landingId);
     if (!landing) {
       const defaultName = input.landing_name || `Landing ${landingId}`;
@@ -102,7 +264,6 @@ export function trackVisit(db, input = {}) {
       );
     }
 
-    // 2. Check if visitor has visited today for this landing
     const existingVisit = db.prepare('SELECT id FROM landing_visits WHERE landing_id=? AND date=? AND visitor_id=?').get(
       landingId,
       today,
@@ -132,8 +293,10 @@ export function trackVisit(db, input = {}) {
 
 /**
  * Endpoint 2: Receive Cash on Delivery (COD) order from independent landing
+ * Con idempotencia/deduplicación y solicitud opcional de confirmación WhatsApp.
  */
-export function receiveLandingOrder(db, input = {}) {
+export function receiveLandingOrder(db, input = {}, { whatsapp = null } = {}) {
+  ensureLandingOrderSchema(db);
   const rawId = input.landing_id || input.landingId || 'aerosleep';
   const landingId = sanitizeId(rawId);
   if (!landingId) fail(400, 'landing_id requerido');
@@ -152,11 +315,43 @@ export function receiveLandingOrder(db, input = {}) {
   const utmSource = input.utm_source ? String(input.utm_source).slice(0, 100) : null;
   const utmCampaign = input.utm_campaign ? String(input.utm_campaign).slice(0, 100) : null;
 
-  const currentIso = now();
-  const orderId = randomUUID();
-  const landingOrderId = randomUUID();
+  const normPhone = normalizeChilePhone(phone);
+  const idempotencyKey = String(
+    input.idempotency_key ||
+    input.request_id ||
+    `${landingId}:${normPhone}:${packSelected}:${totalPrice}`
+  ).trim();
 
-  return transaction(db, () => {
+  const currentIso = now();
+  const dedupWindowIso = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+
+  const result = transaction(db, () => {
+    // 0. Deduplicación / Idempotencia: evitar doble clic en formulario de landing
+    const recentDuplicate = db.prepare(`
+      SELECT * FROM landing_orders
+      WHERE idempotency_key = ? AND created_at >= ?
+      ORDER BY created_at DESC LIMIT 1
+    `).get(idempotencyKey, dedupWindowIso);
+
+    if (recentDuplicate) {
+      return {
+        ok: true,
+        deduplicated: true,
+        order_id: recentDuplicate.order_id,
+        landing_order_id: recentDuplicate.id,
+        order_number: recentDuplicate.order_number,
+        landing_id: recentDuplicate.landing_id,
+        master_sku: recentDuplicate.master_sku,
+        supplier_platform: recentDuplicate.supplier_platform,
+        total_price: recentDuplicate.total_price,
+        customer: recentDuplicate.customer_name,
+        phone: recentDuplicate.customer_phone,
+        status: recentDuplicate.status,
+        created_at: recentDuplicate.created_at,
+        message: 'Pedido ya registrado (idempotente)'
+      };
+    }
+
     // 1. Ensure landing exists & get mapping
     let landing = db.prepare('SELECT * FROM landings WHERE id=?').get(landingId);
     if (!landing) {
@@ -189,6 +384,9 @@ export function receiveLandingOrder(db, input = {}) {
     const masterSku = input.master_sku || landing.master_sku || `SKU-${landingId.toUpperCase()}-01`;
     const supplierPlatform = input.supplier_platform || landing.supplier_platform || 'Dropea';
     const supplierProductId = input.supplier_product_id || landing.supplier_product_id || '';
+
+    const orderId = randomUUID();
+    const landingOrderId = randomUUID();
 
     // 2. Next sequential order number in Nexora
     const nextNumber = db.prepare('SELECT COALESCE(MAX(number),0)+1 n FROM orders').get().n;
@@ -248,14 +446,14 @@ export function receiveLandingOrder(db, input = {}) {
       VALUES (?, ?, NULL, 'created', ?, ?)
     `).run(randomUUID(), orderId, actorId, currentIso);
 
-    // 6. Record in landing_orders with SKU Maestro & Proveedor
+    // 6. Record in landing_orders (inicia siempre como 'pending' hasta confirmar por WhatsApp)
     db.prepare(`
       INSERT INTO landing_orders (
         id, landing_id, order_id, order_number, product_name, pack_selected, total_price,
         customer_name, customer_phone, customer_address, customer_commune, customer_region,
         master_sku, supplier_platform, supplier_product_id, utm_source, utm_campaign, 
-        status, dropea_status, dropi_status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        status, dropea_status, dropi_status, idempotency_key, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       landingOrderId,
       landingId,
@@ -277,17 +475,9 @@ export function receiveLandingOrder(db, input = {}) {
       'pending',
       null,
       null,
+      idempotencyKey,
       currentIso
     );
-
-    const autoFulfillment = String(landing?.auto_fulfillment || 'none').toLowerCase();
-    if (autoFulfillment === 'dropi' && (supplierProductId || masterSku)) {
-      setImmediate(() => {
-        sendOrderToSupplier(db, landingOrderId, { platform: 'Dropi' }).catch(err => {
-          console.error(`[Auto Dropi MCP Order #${nextNumber}]`, err.message);
-        });
-      });
-    }
 
     return {
       ok: true,
@@ -297,14 +487,283 @@ export function receiveLandingOrder(db, input = {}) {
       landing_id: landingId,
       master_sku: masterSku,
       supplier_platform: supplierPlatform,
-      auto_fulfillment: autoFulfillment,
+      auto_fulfillment: String(landing?.auto_fulfillment || 'none').toLowerCase(),
       total_price: totalPrice,
       customer: fullName,
       phone,
+      status: 'pending',
       created_at: currentIso,
-      message: 'Pedido contra entrega registrado exitosamente en Nexora'
+      message: 'Pedido contra entrega registrado en Nexora (pendiente de confirmación WhatsApp)'
     };
   });
+
+  // Si hay WhatsApp conectado en el servidor y no es duplicado, envía automáticamente el mensaje de confirmación
+  if (!result.deduplicated && whatsapp) {
+    try {
+      const waStatus = whatsapp.status?.();
+      if (waStatus?.connected) {
+        setImmediate(() => {
+          sendLandingOrderWhatsAppRequest(db, result.landing_order_id, { whatsapp }).catch(() => {});
+        });
+      }
+    } catch {}
+  }
+
+  return result;
+}
+
+/**
+ * Enviar solicitud de confirmación por WhatsApp (vía Baileys QR, Cloud API o enlace wa.me)
+ */
+export async function sendLandingOrderWhatsAppRequest(db, orderId, { whatsapp = null, customMessage = null, mode = 'auto' } = {}) {
+  ensureLandingOrderSchema(db);
+  const order = db.prepare('SELECT * FROM landing_orders WHERE id=? OR order_id=?').get(orderId, orderId);
+  if (!order) fail(404, 'Pedido no encontrado');
+
+  const messageText = customMessage ? String(customMessage).trim() : buildWhatsAppConfirmationMessage(order);
+  const normPhone = normalizeChilePhone(order.customer_phone);
+  if (!normPhone || normPhone.length < 10) {
+    fail(400, 'El pedido no tiene un teléfono válido para enviar WhatsApp');
+  }
+
+  const waMeUrl = `https://wa.me/${normPhone}?text=${encodeURIComponent(messageText)}`;
+  let sendResult = { ok: false, channel: 'wa_me', remote_id: null };
+
+  if (mode !== 'wa_me' && whatsapp?.sendText) {
+    try {
+      sendResult = await whatsapp.sendText(normPhone, messageText);
+    } catch (err) {
+      sendResult = { ok: false, channel: 'wa_me', error: err.message };
+    }
+  }
+
+  const nextStatus = ['confirmed', 'sent_to_supplier', 'shipped', 'delivered'].includes(order.status)
+    ? order.status
+    : 'awaiting_confirmation';
+
+  transaction(db, () => {
+    db.prepare(`
+      UPDATE landing_orders
+      SET status = ?, confirmation_sent_at = ?
+      WHERE id = ?
+    `).run(nextStatus, now(), order.id);
+
+    logWhatsAppConfirmationEvent(db, {
+      landing_order_id: order.id,
+      order_number: order.order_number,
+      phone: normPhone,
+      direction: 'outbound',
+      channel: sendResult.ok ? sendResult.channel : 'wa_me',
+      message_text: messageText,
+      parsed_intent: 'request_confirmation',
+      status_before: order.status,
+      status_after: nextStatus,
+      remote_message_id: sendResult.remote_id || null
+    });
+  });
+
+  return {
+    ok: true,
+    sent_automatically: Boolean(sendResult.ok),
+    channel: sendResult.ok ? sendResult.channel : 'wa_me',
+    order_id: order.id,
+    order_number: order.order_number,
+    status: nextStatus,
+    phone: normPhone,
+    wa_me_url: waMeUrl,
+    message: sendResult.ok
+      ? `Solicitud de confirmación enviada automáticamente por WhatsApp (${sendResult.channel}) a +${normPhone}`
+      : 'Pedido marcado en espera de confirmación. Se preparó el enlace manual de WhatsApp.'
+  };
+}
+
+/**
+ * Procesar respuesta entrante de WhatsApp (desde Baileys QR, Webhook Cloud API o simulador/operador)
+ */
+export async function processIncomingWhatsAppConfirmation(db, { phone, text: replyText, remoteId = null, channel = 'webhook', orderId = null } = {}) {
+  ensureLandingOrderSchema(db);
+  const normPhone = normalizeChilePhone(phone);
+  const last8 = normPhone.slice(-8);
+  const eventId = remoteId || `wa-evt-${normPhone}-${Date.now()}`;
+
+  // 1. Deduplicar evento
+  const existingEvt = db.prepare('SELECT event_id FROM whatsapp_webhook_events WHERE event_id=?').get(eventId);
+  if (existingEvt) {
+    return { ok: true, deduplicated: true, event_id: eventId };
+  }
+
+  // 2. Buscar el pedido correspondiente
+  let order = null;
+  if (orderId) {
+    order = db.prepare('SELECT * FROM landing_orders WHERE id=? OR order_id=?').get(orderId, orderId);
+  }
+  if (!order && last8.length >= 8) {
+    order = db.prepare(`
+      SELECT * FROM landing_orders
+      WHERE REPLACE(REPLACE(REPLACE(customer_phone, '+', ''), ' ', ''), '-', '') LIKE ?
+        AND status IN ('awaiting_confirmation', 'pending', 'needs_review')
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(`%${last8}%`);
+  }
+
+  if (!order) {
+    return { ok: false, matched: false, message: 'No se encontró un pedido pendiente para ese número de teléfono' };
+  }
+
+  const intent = parseWhatsAppReplyIntent(replyText);
+  const completeness = validateOrderCompleteness(order);
+  const stamp = now();
+
+  let nextStatus = order.status;
+  if (intent === 'confirm') {
+    nextStatus = completeness.valid ? 'confirmed' : 'needs_review';
+  } else if (intent === 'reject') {
+    nextStatus = 'cancelled';
+  } else {
+    nextStatus = 'needs_review';
+  }
+
+  transaction(db, () => {
+    db.prepare(`
+      INSERT OR IGNORE INTO whatsapp_webhook_events (event_id, channel, phone, payload_json, processed_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(eventId, channel, normPhone, JSON.stringify({ phone: normPhone, text: replyText, intent }), stamp);
+
+    if (nextStatus === 'confirmed') {
+      db.prepare(`
+        UPDATE landing_orders
+        SET status = 'confirmed',
+            confirmed_at = ?,
+            confirmation_source = ?,
+            confirmation_reply = ?
+        WHERE id = ?
+      `).run(stamp, channel, String(replyText || '').slice(0, 500), order.id);
+    } else {
+      db.prepare(`
+        UPDATE landing_orders
+        SET status = ?,
+            confirmation_source = ?,
+            confirmation_reply = ?
+        WHERE id = ?
+      `).run(nextStatus, channel, String(replyText || '').slice(0, 500), order.id);
+
+      if (nextStatus === 'cancelled' && order.order_id) {
+        db.prepare("UPDATE orders SET status='cancelled' WHERE id=?").run(order.order_id);
+      }
+    }
+
+    logWhatsAppConfirmationEvent(db, {
+      landing_order_id: order.id,
+      order_number: order.order_number,
+      phone: normPhone,
+      direction: 'inbound',
+      channel,
+      message_text: String(replyText || '').slice(0, 500),
+      parsed_intent: intent,
+      status_before: order.status,
+      status_after: nextStatus,
+      remote_message_id: eventId
+    });
+  });
+
+  // 3. Si el cliente confirmó ("Sí") y los datos son válidos, verificar si la landing tiene auto_fulfillment en Dropi
+  let autoDispatchResult = null;
+  if (nextStatus === 'confirmed') {
+    const landing = db.prepare('SELECT * FROM landings WHERE id=?').get(order.landing_id);
+    const autoFulfillment = String(landing?.auto_fulfillment || 'none').toLowerCase();
+    if (autoFulfillment === 'dropi') {
+      try {
+        autoDispatchResult = await sendOrderToSupplier(db, order.id, { platform: 'Dropi' });
+      } catch (err) {
+        autoDispatchResult = { ok: false, error: err.message };
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    matched: true,
+    order_id: order.id,
+    order_number: order.order_number,
+    intent,
+    completeness_valid: completeness.valid,
+    completeness_errors: completeness.errors,
+    status_before: order.status,
+    status_after: autoDispatchResult?.ok ? 'sent_to_supplier' : nextStatus,
+    auto_dispatch: autoDispatchResult
+  };
+}
+
+/**
+ * Webhook oficial de WhatsApp Cloud API (GET verificación y POST recepción firmada)
+ */
+export function verifyWhatsAppCloudWebhook(query = {}) {
+  const mode = query['hub.mode'];
+  const token = query['hub.verify_token'];
+  const challenge = query['hub.challenge'];
+  const expected = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || '';
+  if (mode === 'subscribe' && expected && token === expected) {
+    return { ok: true, challenge: String(challenge || '') };
+  }
+  fail(403, 'Token de verificación de webhook de WhatsApp inválido');
+}
+
+export async function receiveWhatsAppCloudWebhook(db, rawBodyBuffer, headers = {}) {
+  const appSecret = process.env.WHATSAPP_APP_SECRET || '';
+  if (appSecret) {
+    const sigHeader = String(headers['x-hub-signature-256'] || '');
+    const expectedSig = 'sha256=' + createHmac('sha256', appSecret).update(rawBodyBuffer).digest('hex');
+    const a = Buffer.from(sigHeader);
+    const b = Buffer.from(expectedSig);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      fail(401, 'Firma X-Hub-Signature-256 inválida');
+    }
+  }
+
+  let payload = {};
+  try {
+    payload = JSON.parse(rawBodyBuffer.toString('utf8') || '{}');
+  } catch {
+    fail(400, 'JSON de webhook inválido');
+  }
+
+  const processed = [];
+  for (const entry of payload.entry || []) {
+    for (const change of entry.changes || []) {
+      const messages = change?.value?.messages || [];
+      for (const msg of messages) {
+        const from = msg.from || '';
+        const msgId = msg.id || randomUUID();
+        const textBody = (
+          msg.text?.body ||
+          msg.button?.text ||
+          msg.interactive?.button_reply?.title ||
+          msg.interactive?.list_reply?.title ||
+          ''
+        ).trim();
+        if (from && textBody) {
+          const res = await processIncomingWhatsAppConfirmation(db, {
+            phone: from,
+            text: textBody,
+            remoteId: msgId,
+            channel: 'cloud_api'
+          });
+          processed.push(res);
+        }
+      }
+    }
+  }
+
+  return { ok: true, processed_count: processed.length, results: processed };
+}
+
+export function getLandingOrderAuditLogs(db, orderId) {
+  ensureLandingOrderSchema(db);
+  const order = db.prepare('SELECT * FROM landing_orders WHERE id=? OR order_id=?').get(orderId, orderId);
+  if (!order) fail(404, 'Pedido no encontrado');
+  const logs = db.prepare('SELECT * FROM whatsapp_confirmation_logs WHERE landing_order_id=? ORDER BY created_at DESC LIMIT 50').all(order.id);
+  return { order_id: order.id, order_number: order.order_number, logs };
 }
 
 /**
@@ -322,6 +781,7 @@ function ensureCampaignColumn(db) {
 
 export function getLandingsMetrics(db, query = {}) {
   ensureCampaignColumn(db);
+  ensureLandingOrderSchema(db);
   const activeThreshold = new Date(Date.now() - 3 * 60 * 1000).toISOString();
   const range = resolveDateRange(query);
   const { period, from, to, today, utcToday } = range;
@@ -329,7 +789,6 @@ export function getLandingsMetrics(db, query = {}) {
   const allLandings = db.prepare('SELECT * FROM landings ORDER BY created_at DESC').all();
 
   const list = allLandings.map(landing => {
-    // 🟢 En vivo ahora (Active Users): COUNT(DISTINCT visitor_id) WHERE last_ping >= NOW() - 3 MINUTES
     const activeRow = db.prepare(`
       SELECT COUNT(DISTINCT visitor_id) as c 
       FROM landing_visits 
@@ -337,7 +796,6 @@ export function getLandingsMetrics(db, query = {}) {
     `).get(landing.id, activeThreshold);
     const activeNow = activeRow?.c || 0;
 
-    // 👁️ Visitas según filtro de fechas
     let visitsPeriod = 0;
     if (period === 'all') {
       const visitsRow = db.prepare(`
@@ -362,7 +820,6 @@ export function getLandingsMetrics(db, query = {}) {
       visitsPeriod = visitsRow?.c || 0;
     }
 
-    // 📦 Pedidos y Facturación según filtro de fechas
     let ordersPeriod = 0;
     let revenuePeriod = 0;
     let recentOrders = [];
@@ -377,7 +834,7 @@ export function getLandingsMetrics(db, query = {}) {
       revenuePeriod = ordersRow?.rev || 0;
 
       recentOrders = db.prepare(`
-        SELECT id, order_number, product_name, pack_selected, total_price, customer_name, customer_phone, customer_address, customer_commune, customer_region, master_sku, supplier_platform, status, created_at 
+        SELECT id, order_number, product_name, pack_selected, total_price, customer_name, customer_phone, customer_address, customer_commune, customer_region, master_sku, supplier_platform, status, confirmed_at, confirmation_reply, created_at 
         FROM landing_orders 
         WHERE landing_id=? 
         ORDER BY created_at DESC 
@@ -393,7 +850,7 @@ export function getLandingsMetrics(db, query = {}) {
       revenuePeriod = ordersRow?.rev || 0;
 
       recentOrders = db.prepare(`
-        SELECT id, order_number, product_name, pack_selected, total_price, customer_name, customer_phone, customer_address, customer_commune, customer_region, master_sku, supplier_platform, status, created_at 
+        SELECT id, order_number, product_name, pack_selected, total_price, customer_name, customer_phone, customer_address, customer_commune, customer_region, master_sku, supplier_platform, status, confirmed_at, confirmation_reply, created_at 
         FROM landing_orders 
         WHERE landing_id=? AND (date(created_at, '-3 hours') = ? OR substr(created_at, 1, 10) IN (?, ?))
         ORDER BY created_at DESC 
@@ -409,7 +866,7 @@ export function getLandingsMetrics(db, query = {}) {
       revenuePeriod = ordersRow?.rev || 0;
 
       recentOrders = db.prepare(`
-        SELECT id, order_number, product_name, pack_selected, total_price, customer_name, customer_phone, customer_address, customer_commune, customer_region, master_sku, supplier_platform, status, created_at 
+        SELECT id, order_number, product_name, pack_selected, total_price, customer_name, customer_phone, customer_address, customer_commune, customer_region, master_sku, supplier_platform, status, confirmed_at, confirmation_reply, created_at 
         FROM landing_orders 
         WHERE landing_id=? AND (date(created_at, '-3 hours') BETWEEN ? AND ? OR substr(created_at, 1, 10) BETWEEN ? AND ?)
         ORDER BY created_at DESC 
@@ -417,7 +874,6 @@ export function getLandingsMetrics(db, query = {}) {
       `).all(landing.id, from, to, from, to);
     }
 
-    // Pedidos Totales históricos
     const ordersTotalRow = db.prepare(`
       SELECT COUNT(*) as c, COALESCE(SUM(total_price), 0) as rev 
       FROM landing_orders 
@@ -426,7 +882,6 @@ export function getLandingsMetrics(db, query = {}) {
     const ordersTotal = ordersTotalRow?.c || 0;
     const revenueTotal = ordersTotalRow?.rev || 0;
 
-    // 📈 Tasa de Conversión (%): (Pedidos / Visitas) * 100
     const conversionRate = visitsPeriod > 0 ? Number(((ordersPeriod / visitsPeriod) * 100).toFixed(1)) : 0;
 
     return {
@@ -462,9 +917,10 @@ export function getLandingsMetrics(db, query = {}) {
 }
 
 /**
- * 4. Obtener TODOS los pedidos COD de Landings con filtros para la nueva sección
+ * 4. Obtener TODOS los pedidos COD de Landings con filtros
  */
 export function getAllLandingOrders(db, query = {}) {
+  ensureLandingOrderSchema(db);
   const { status = 'all', landing_id = 'all', search = '', limit = 100, offset = 0 } = query;
 
   let sql = 'SELECT * FROM landing_orders WHERE 1=1';
@@ -491,7 +947,6 @@ export function getAllLandingOrders(db, query = {}) {
 
   const orders = db.prepare(sql).all(...params);
 
-  // Total count for pagination
   let countSql = 'SELECT COUNT(*) as c FROM landing_orders WHERE 1=1';
   const countParams = [];
   if (landing_id && landing_id !== 'all') {
@@ -509,8 +964,6 @@ export function getAllLandingOrders(db, query = {}) {
   }
 
   const total = db.prepare(countSql).get(...countParams)?.c || 0;
-
-  // Landings list for filter dropdown
   const landings = db.prepare('SELECT id, name, master_sku, supplier_platform FROM landings ORDER BY name ASC').all();
 
   return {
@@ -522,29 +975,60 @@ export function getAllLandingOrders(db, query = {}) {
 }
 
 /**
- * 5. Actualizar estado de un pedido COD (ej: Pendiente -> Confirmado -> Enviado a Dropea -> En Reparto -> Entregado)
+ * 5. Actualizar estado de un pedido COD con registro de auditoría
  */
 export function updateLandingOrderStatus(db, orderId, input = {}) {
+  ensureLandingOrderSchema(db);
   const status = text(input.status, 'Estado', 50, true);
   const guideNumber = input.guide_number ? String(input.guide_number).trim() : null;
   const trackingUrl = input.tracking_url ? String(input.tracking_url).trim() : null;
+  const note = input.note ? String(input.note).trim() : null;
 
-  const validStatuses = ['pending', 'confirmed', 'paid', 'sent_to_supplier', 'shipped', 'delivered', 'cancelled'];
-  if (!validStatuses.includes(status)) {
-    fail(400, `Estado inválido. Opciones: ${validStatuses.join(', ')}`);
+  if (!VALID_LANDING_STATUSES.includes(status)) {
+    fail(400, `Estado inválido. Opciones: ${VALID_LANDING_STATUSES.join(', ')}`);
   }
 
   return transaction(db, () => {
     const order = db.prepare('SELECT * FROM landing_orders WHERE id=? OR order_id=?').get(orderId, orderId);
     if (!order) fail(404, 'Pedido no encontrado');
 
+    const stamp = now();
+    const isConfirming = status === 'confirmed' && !order.confirmed_at;
+
     db.prepare(`
       UPDATE landing_orders 
-      SET status=?, guide_number=COALESCE(?, guide_number), tracking_url=COALESCE(?, tracking_url) 
+      SET status=?,
+          guide_number=COALESCE(?, guide_number),
+          tracking_url=COALESCE(?, tracking_url),
+          confirmed_at=CASE WHEN ? THEN ? ELSE confirmed_at END,
+          confirmation_source=CASE WHEN ? THEN COALESCE(confirmation_source, 'manual') ELSE confirmation_source END,
+          confirmation_reply=COALESCE(?, confirmation_reply),
+          dispatch_error=CASE WHEN ?='confirmed' THEN NULL ELSE dispatch_error END
       WHERE id=?
-    `).run(status, guideNumber, trackingUrl, order.id);
+    `).run(
+      status,
+      guideNumber,
+      trackingUrl,
+      isConfirming ? 1 : 0,
+      stamp,
+      isConfirming ? 1 : 0,
+      note,
+      status,
+      order.id
+    );
 
-    // Map to Nexora master orders table
+    logWhatsAppConfirmationEvent(db, {
+      landing_order_id: order.id,
+      order_number: order.order_number,
+      phone: normalizeChilePhone(order.customer_phone),
+      direction: 'operator',
+      channel: 'manual',
+      message_text: note || `Cambio manual de estado a ${status}`,
+      parsed_intent: status,
+      status_before: order.status,
+      status_after: status
+    });
+
     let nexoraStatus = 'pending';
     if (status === 'shipped' || status === 'delivered' || status === 'sent_to_supplier') {
       nexoraStatus = 'packed';
@@ -561,9 +1045,10 @@ export function updateLandingOrderStatus(db, orderId, input = {}) {
 }
 
 /**
- * 5.1 Modificar todos los detalles de un pedido COD (cliente, teléfono, dirección, pack, total, sku, etc.)
+ * 5.1 Modificar todos los detalles de un pedido COD
  */
 export function updateLandingOrderDetails(db, orderId, input = {}) {
+  ensureLandingOrderSchema(db);
   return transaction(db, () => {
     const order = db.prepare('SELECT * FROM landing_orders WHERE id=? OR order_id=?').get(orderId, orderId);
     if (!order) fail(404, 'Pedido no encontrado');
@@ -578,19 +1063,26 @@ export function updateLandingOrderDetails(db, orderId, input = {}) {
     const masterSku = input.master_sku !== undefined ? String(input.master_sku).trim() : order.master_sku;
     const supplierPlatform = input.supplier_platform !== undefined ? String(input.supplier_platform).trim() : order.supplier_platform;
     const supplierProductId = input.supplier_product_id !== undefined ? String(input.supplier_product_id).trim() : order.supplier_product_id;
-    const status = input.status ? String(input.status).trim() : order.status;
+    const status = input.status && VALID_LANDING_STATUSES.includes(String(input.status).trim()) ? String(input.status).trim() : order.status;
     const guideNumber = input.guide_number !== undefined ? String(input.guide_number).trim() : order.guide_number;
+
+    const isConfirming = status === 'confirmed' && !order.confirmed_at;
 
     db.prepare(`
       UPDATE landing_orders 
       SET customer_name=?, customer_phone=?, customer_address=?, customer_commune=?, customer_region=?,
           pack_selected=?, total_price=?, master_sku=?, supplier_platform=?, supplier_product_id=?,
-          status=?, guide_number=?
+          status=?, guide_number=?,
+          confirmed_at=CASE WHEN ? THEN ? ELSE confirmed_at END,
+          confirmation_source=CASE WHEN ? THEN COALESCE(confirmation_source, 'manual') ELSE confirmation_source END
       WHERE id=?
     `).run(
       customerName, customerPhone, customerAddress, customerCommune, customerRegion,
       packSelected, totalPrice, masterSku, supplierPlatform, supplierProductId,
-      status, guideNumber, order.id
+      status, guideNumber,
+      isConfirming ? 1 : 0, now(),
+      isConfirming ? 1 : 0,
+      order.id
     );
 
     if (order.order_id) {
@@ -602,9 +1094,9 @@ export function updateLandingOrderDetails(db, orderId, input = {}) {
       }
       db.prepare(`
         UPDATE orders 
-        SET customer_name=?, customer_phone=?, customer_address=?, total_price=?, status=? 
+        SET customer_name=?, status=? 
         WHERE id=?
-      `).run(customerName, customerPhone, `${customerAddress}, ${customerCommune}`, totalPrice, nexoraStatus, order.order_id);
+      `).run(`${customerName} (${customerPhone} · ${customerCommune})`, nexoraStatus, order.order_id);
     }
 
     return {
@@ -616,18 +1108,150 @@ export function updateLandingOrderDetails(db, orderId, input = {}) {
 }
 
 /**
- * 6. Enviar orden a proveedor mayorista (Dropi Chile vía Dropi MCP oficial o Dropea COD)
+ * 5.2 Eliminar un pedido COD individual (limpia landing_orders, orders, order_items, packing_events y logs)
+ */
+export function deleteLandingOrder(db, orderId) {
+  ensureLandingOrderSchema(db);
+  return transaction(db, () => {
+    const order = db.prepare('SELECT * FROM landing_orders WHERE id=? OR order_id=?').get(orderId, orderId);
+    if (!order) fail(404, 'Pedido no encontrado');
+
+    db.prepare('DELETE FROM whatsapp_confirmation_logs WHERE landing_order_id=?').run(order.id);
+    db.prepare('DELETE FROM landing_orders WHERE id=?').run(order.id);
+
+    if (order.order_id) {
+      try { db.prepare('DELETE FROM packing_events WHERE order_id=?').run(order.order_id); } catch {}
+      try { db.prepare('DELETE FROM order_items WHERE order_id=?').run(order.order_id); } catch {}
+      try { db.prepare('DELETE FROM landing_order_requests WHERE order_id=?').run(order.order_id); } catch {}
+      try { db.prepare('DELETE FROM external_order_details WHERE order_id=?').run(order.order_id); } catch {}
+      try { db.prepare('DELETE FROM packing_support_requests WHERE order_id=?').run(order.order_id); } catch {}
+      try { db.prepare('DELETE FROM orders WHERE id=?').run(order.order_id); } catch {}
+    }
+
+    return {
+      ok: true,
+      deleted_id: order.id,
+      order_number: order.order_number,
+      message: `Pedido #${order.order_number} eliminado correctamente`
+    };
+  });
+}
+
+/**
+ * 5.3 Limpiar pedidos de prueba o seleccionados en bloque
+ */
+export function cleanupTestLandingOrders(db, input = {}) {
+  ensureLandingOrderSchema(db);
+  return transaction(db, () => {
+    let targetOrders = [];
+    if (Array.isArray(input.ids) && input.ids.length > 0) {
+      const placeholders = input.ids.map(() => '?').join(',');
+      targetOrders = db.prepare(`SELECT * FROM landing_orders WHERE id IN (${placeholders})`).all(...input.ids);
+    } else if (input.all === true) {
+      targetOrders = db.prepare("SELECT * FROM landing_orders WHERE status != 'sent_to_supplier' AND status != 'delivered'").all();
+    } else {
+      targetOrders = db.prepare(`
+        SELECT * FROM landing_orders
+        WHERE LOWER(customer_name) LIKE '%test%'
+           OR LOWER(customer_name) LIKE '%prueba%'
+           OR LOWER(product_name) LIKE '%prueba%'
+           OR customer_phone LIKE '%12345678%'
+           OR customer_phone LIKE '%000000%'
+           OR status = 'cancelled'
+      `).all();
+    }
+
+    let deletedCount = 0;
+    for (const order of targetOrders) {
+      db.prepare('DELETE FROM whatsapp_confirmation_logs WHERE landing_order_id=?').run(order.id);
+      db.prepare('DELETE FROM landing_orders WHERE id=?').run(order.id);
+      if (order.order_id) {
+        try { db.prepare('DELETE FROM packing_events WHERE order_id=?').run(order.order_id); } catch {}
+        try { db.prepare('DELETE FROM order_items WHERE order_id=?').run(order.order_id); } catch {}
+        try { db.prepare('DELETE FROM landing_order_requests WHERE order_id=?').run(order.order_id); } catch {}
+        try { db.prepare('DELETE FROM external_order_details WHERE order_id=?').run(order.order_id); } catch {}
+        try { db.prepare('DELETE FROM packing_support_requests WHERE order_id=?').run(order.order_id); } catch {}
+        try { db.prepare('DELETE FROM orders WHERE id=?').run(order.order_id); } catch {}
+      }
+      deletedCount++;
+    }
+
+    return {
+      ok: true,
+      deleted_count: deletedCount,
+      message: deletedCount > 0
+        ? `Se eliminaron ${deletedCount} pedido(s) de prueba o cancelados`
+        : 'No se encontraron pedidos de prueba para eliminar'
+    };
+  });
+}
+
+/**
+ * 6. Enviar orden a proveedor mayorista (Dropi Chile vía Dropi MCP oficial o Bodega Propia)
+ * Incluye guarda obligatoria status === 'confirmed', validación de datos, idempotencia y CERO guías ficticias.
  */
 export async function sendOrderToSupplier(db, orderId, options = {}) {
+  ensureLandingOrderSchema(db);
   const order = db.prepare('SELECT * FROM landing_orders WHERE id=? OR order_id=?').get(orderId, orderId);
   if (!order) fail(404, 'Pedido no encontrado');
+
+  // 1. Idempotencia: si ya fue enviado exitosamente al proveedor, devolver el registro existente sin duplicar
+  if (order.status === 'sent_to_supplier' && order.supplier_order_id) {
+    return {
+      ok: true,
+      idempotent: true,
+      message: `El pedido #${order.order_number} ya fue enviado previamente (${order.supplier_order_id})`,
+      order_id: order.id,
+      supplier_platform: order.supplier_platform,
+      supplier_order_id: order.supplier_order_id,
+      guide_number: order.guide_number || '',
+      tracking_url: order.tracking_url || '',
+      status: 'sent_to_supplier'
+    };
+  }
+
+  // 2. Guarda obligatoria: rechazar pedidos cancelados o sin confirmar
+  if (order.status === 'cancelled') {
+    fail(409, `El pedido #${order.order_number} está cancelado y no puede despacharse.`);
+  }
+
+  if (options.auto_confirm === true && order.status !== 'confirmed' && order.status !== 'paid') {
+    const stamp = now();
+    db.prepare(`
+      UPDATE landing_orders
+      SET status='confirmed',
+          confirmed_at=COALESCE(confirmed_at, ?),
+          confirmation_source=COALESCE(confirmation_source, 'manual_operator')
+      WHERE id=?
+    `).run(stamp, order.id);
+    order.status = 'confirmed';
+    order.confirmed_at = order.confirmed_at || stamp;
+  }
+
+  if (order.status !== 'confirmed' && order.status !== 'paid') {
+    fail(
+      409,
+      `El pedido #${order.order_number} debe estar confirmado por WhatsApp (estado "Confirmado WhatsApp") antes de enviarse al proveedor. Estado actual: ${order.status}.`
+    );
+  }
+
+  // 3. Validar datos completos y coherentes del pedido antes de despachar
+  const check = validateOrderCompleteness(order);
+  if (!check.valid) {
+    db.prepare("UPDATE landing_orders SET status='needs_review', dispatch_error=? WHERE id=?").run(
+      check.errors.join('. '),
+      order.id
+    );
+    fail(400, `Datos incompletos para despachar pedido #${order.order_number}: ${check.errors.join(', ')}`);
+  }
 
   const landing = order.landing_id
     ? db.prepare('SELECT * FROM landings WHERE id=?').get(order.landing_id)
     : null;
 
-  const platform = String(options.platform || order.supplier_platform || landing?.supplier_platform || 'Dropea').trim();
+  const platform = String(options.platform || order.supplier_platform || landing?.supplier_platform || 'Dropi').trim();
   const isDropi = platform.toLowerCase().includes('dropi');
+  const isLocal = ['propio', 'local', 'nexora', 'bodega'].some(k => platform.toLowerCase().includes(k));
 
   let resolvedProductId = String(
     options.supplier_product_id ||
@@ -650,79 +1274,151 @@ export async function sendOrderToSupplier(db, orderId, options = {}) {
     }
   }
 
+  // 4. Adaptador Real: Dropi Chile vía Dropi MCP
   if (isDropi) {
-    const mcpResult = await createDropiOrderViaMcp(
-      {
-        ...order,
-        supplier_product_id: resolvedProductId,
-        variation_id: options.variation_id || null,
-        rate_type: options.rate_type || 'CON RECAUDO',
-        distribution_company_id: options.distribution_company_id || null
-      },
-      {
-        getProductDetail: id => dropiClient.getProductDetail(id)
+    if (!resolvedProductId) {
+      db.prepare("UPDATE landing_orders SET status='supplier_error', dispatch_error=? WHERE id=?").run(
+        'Falta ID de producto de Dropi en el mapeo de la landing o SKU Maestro.',
+        order.id
+      );
+      fail(400, `El pedido #${order.order_number} no tiene un ID de producto de Dropi asociado. Configúralo en Mapeo.`);
+    }
+
+    try {
+      const mcpResult = await createDropiOrderViaMcp(
+        {
+          ...order,
+          supplier_product_id: resolvedProductId,
+          variation_id: options.variation_id || null,
+          rate_type: options.rate_type || 'CON RECAUDO',
+          distribution_company_id: options.distribution_company_id || null
+        },
+        {
+          getProductDetail: id => dropiClient.getProductDetail(id)
+        }
+      );
+
+      if (!mcpResult?.dropi_order_id) {
+        throw new Error('Dropi no devolvió un ID de orden confirmado.');
       }
-    );
 
-    const supplierOrderId = mcpResult.dropi_order_id ? `DROPI-${mcpResult.dropi_order_id}` : `DROPI-MCP-${order.order_number}`;
-    const guideNumber = mcpResult.tracking_code || '';
-    const trackingUrl = guideNumber ? `https://app.dropi.cl/dashboard/orders/details/${mcpResult.dropi_order_id || ''}` : `https://app.dropi.cl/dashboard/orders`;
+      const supplierOrderId = `DROPI-${mcpResult.dropi_order_id}`;
+      const guideNumber = mcpResult.tracking_code || '';
+      const trackingUrl = `https://app.dropi.cl/dashboard/orders/details/${mcpResult.dropi_order_id}`;
 
+      return transaction(db, () => {
+        db.prepare(`
+          UPDATE landing_orders 
+          SET status='sent_to_supplier',
+              supplier_platform='Dropi',
+              supplier_product_id=?,
+              supplier_order_id=?,
+              guide_number=?,
+              tracking_url=?,
+              dropi_status=?,
+              dispatch_error=NULL
+          WHERE id=?
+        `).run(resolvedProductId, supplierOrderId, guideNumber, trackingUrl, mcpResult.status || 'PENDIENTE', order.id);
+
+        if (order.order_id) {
+          db.prepare("UPDATE orders SET status='packed' WHERE id=?").run(order.order_id);
+        }
+
+        logWhatsAppConfirmationEvent(db, {
+          landing_order_id: order.id,
+          order_number: order.order_number,
+          phone: check.normalized.phone,
+          direction: 'operator',
+          channel: 'dropi_mcp',
+          message_text: `Despachado a Dropi Chile (${supplierOrderId})`,
+          parsed_intent: 'sent_to_supplier',
+          status_before: order.status,
+          status_after: 'sent_to_supplier',
+          remote_message_id: String(mcpResult.dropi_order_id)
+        });
+
+        return {
+          ok: true,
+          via_mcp: true,
+          message: `Pedido #${order.order_number} creado directamente en Dropi Chile vía MCP (${supplierOrderId})`,
+          order_id: order.id,
+          supplier_platform: 'Dropi',
+          supplier_order_id: supplierOrderId,
+          dropi_order_id: mcpResult.dropi_order_id,
+          dropi_status: mcpResult.status,
+          guide_number: guideNumber,
+          tracking_url: trackingUrl,
+          location: mcpResult.location,
+          status: 'sent_to_supplier'
+        };
+      });
+    } catch (err) {
+      const errMsg = err?.message || 'Error al crear orden en Dropi MCP';
+      transaction(db, () => {
+        db.prepare("UPDATE landing_orders SET status='supplier_error', dispatch_error=? WHERE id=?").run(errMsg, order.id);
+        logWhatsAppConfirmationEvent(db, {
+          landing_order_id: order.id,
+          order_number: order.order_number,
+          phone: check.normalized.phone,
+          direction: 'operator',
+          channel: 'dropi_mcp',
+          message_text: `Error en despacho Dropi: ${errMsg}`,
+          parsed_intent: 'supplier_error',
+          status_before: order.status,
+          status_after: 'supplier_error'
+        });
+      });
+      fail(502, `Dropi rechazó o no pudo crear el pedido #${order.order_number}: ${errMsg}`);
+    }
+  }
+
+  // 5. Adaptador Real: Bodega Propia / Empaque Local Nexora (sin inventar guías falsas)
+  if (isLocal) {
+    const internalRef = `NEXORA-LOCAL-${order.order_number}`;
     return transaction(db, () => {
       db.prepare(`
-        UPDATE landing_orders 
-        SET status='sent_to_supplier', supplier_platform='Dropi', supplier_product_id=?, supplier_order_id=?, guide_number=?, tracking_url=?, dropi_status=? 
+        UPDATE landing_orders
+        SET status='sent_to_supplier',
+            supplier_platform='Propio',
+            supplier_order_id=?,
+            dispatch_error=NULL
         WHERE id=?
-      `).run(resolvedProductId, supplierOrderId, guideNumber, trackingUrl, mcpResult.status || 'PENDIENTE', order.id);
+      `).run(internalRef, order.id);
 
       if (order.order_id) {
-        db.prepare("UPDATE orders SET status='packed' WHERE id=?").run(order.order_id);
+        db.prepare("UPDATE orders SET status='pending' WHERE id=?").run(order.order_id);
       }
+
+      logWhatsAppConfirmationEvent(db, {
+        landing_order_id: order.id,
+        order_number: order.order_number,
+        phone: check.normalized.phone,
+        direction: 'operator',
+        channel: 'nexora_local',
+        message_text: `Asignado a Bodega Local Nexora (${internalRef})`,
+        parsed_intent: 'sent_to_supplier',
+        status_before: order.status,
+        status_after: 'sent_to_supplier'
+      });
 
       return {
         ok: true,
-        via_mcp: true,
-        message: `Pedido #${order.order_number} creado directamente en Dropi Chile vía MCP (${supplierOrderId})`,
+        via_mcp: false,
+        message: `Pedido #${order.order_number} liberado hacia Zona de Empaque Local (${internalRef})`,
         order_id: order.id,
-        supplier_platform: 'Dropi',
-        supplier_order_id: supplierOrderId,
-        dropi_order_id: mcpResult.dropi_order_id,
-        dropi_status: mcpResult.status,
-        guide_number: guideNumber,
-        tracking_url: trackingUrl,
-        location: mcpResult.location,
+        supplier_platform: 'Propio',
+        supplier_order_id: internalRef,
+        guide_number: order.guide_number || '',
+        tracking_url: order.tracking_url || '',
         status: 'sent_to_supplier'
       };
     });
   }
 
-  return transaction(db, () => {
-    const supplierOrderId = `${platform.toUpperCase()}-ORD-${Math.floor(100000 + Math.random() * 900000)}`;
-    const guideNumber = `BLX-${Math.floor(100000000 + Math.random() * 900000000)}`;
-    const trackingUrl = `https://www.bluex.cl/seguimiento?guia=${guideNumber}`;
-
-    db.prepare(`
-      UPDATE landing_orders 
-      SET status='sent_to_supplier', supplier_order_id=?, guide_number=?, tracking_url=?, dropea_status='CREATED' 
-      WHERE id=?
-    `).run(supplierOrderId, guideNumber, trackingUrl, order.id);
-
-    if (order.order_id) {
-      db.prepare("UPDATE orders SET status='packed' WHERE id=?").run(order.order_id);
-    }
-
-    return {
-      ok: true,
-      via_mcp: false,
-      message: `Orden enviada exitosamente a ${platform}`,
-      order_id: order.id,
-      supplier_platform: platform,
-      supplier_order_id: supplierOrderId,
-      guide_number: guideNumber,
-      tracking_url: trackingUrl,
-      status: 'sent_to_supplier'
-    };
-  });
+  // 6. Cualquier otra plataforma externa sin adaptador API directo activo: NO inventar guías falsas
+  const msg = `La plataforma "${platform}" no tiene una integración API de creación de pedidos activa. Cambia el proveedor a "Dropi" (Dropi MCP) o "Propio" (Bodega Local), o ingresa el número de guía real manualmente en Editar.`;
+  db.prepare("UPDATE landing_orders SET status='supplier_error', dispatch_error=? WHERE id=?").run(msg, order.id);
+  fail(409, msg);
 }
 
 /**
@@ -777,7 +1473,6 @@ export async function updateLandingMapping(db, id, input = {}, userId = null) {
 
   const isPlaceholderSku = masterSku.startsWith('SKU-') && masterSku.endsWith('-01');
 
-  // 1. Si se ingresó un ID de proveedor (ej: Dropi #189500) y el SKU aún es genérico o no existe en Nexora:
   if (supplierProductId) {
     const existingByCode = db.prepare(`
       SELECT v.id, v.meibo_sku, p.name as product_name
@@ -791,23 +1486,18 @@ export async function updateLandingMapping(db, id, input = {}, userId = null) {
     if (existingByCode && (isPlaceholderSku || !db.prepare('SELECT id FROM variants WHERE meibo_sku=? AND active=1').get(masterSku))) {
       masterSku = existingByCode.meibo_sku;
     } else if (supplierPlatform.toLowerCase() === 'dropi' && !db.prepare('SELECT id FROM variants WHERE meibo_sku=? AND active=1').get(masterSku)) {
-      // Auto-importar el producto desde Dropi a Nexora para que queden asignados ambos a la vez
       try {
         const imported = await dropiClient.importProductToNexora(db, supplierProductId, userId);
         if (imported?.master_sku) {
           masterSku = imported.master_sku;
         }
-      } catch (e) {
-        // Si no se pudo auto-importar de Dropi API, continuamos guardando el mapeo directo
-      }
+      } catch {}
     }
   }
 
-  // 2. Sincronizar bidireccionalmente con la tabla variants y external_codes de Nexora
   const variant = db.prepare('SELECT id, product_id, meibo_sku FROM variants WHERE meibo_sku=? AND active=1 LIMIT 1').get(masterSku);
   if (variant) {
     if (!supplierProductId) {
-      // Buscar si el producto en Nexora ya tiene código Dropi o Dropea
       const codeRow = db.prepare(`
         SELECT platform, code FROM external_codes
         WHERE variant_id = ? AND platform IN ('Dropi', 'Dropea')
@@ -822,7 +1512,6 @@ export async function updateLandingMapping(db, id, input = {}, userId = null) {
         }
       }
     } else {
-      // Guardar/actualizar el código de Dropi o Dropea en el producto de Nexora para que queden vinculados a la vez
       const normPlatform = supplierPlatform.toLowerCase() === 'dropea' ? 'Dropea' : 'Dropi';
       supplierPlatform = normPlatform;
       const existingCode = db.prepare('SELECT id FROM external_codes WHERE variant_id=? AND platform=?').get(variant.id, normPlatform);
@@ -857,7 +1546,6 @@ export async function updateLandingMapping(db, id, input = {}, userId = null) {
     `).run(landingId, name, url, masterSku, supplierPlatform, supplierProductId, autoFulfillment, nowIso);
   }
 
-  // 3. Actualizar pedidos pendientes de esta landing con el nuevo SKU Maestro y proveedor sincronizado
   try {
     db.prepare(`
       UPDATE landing_orders
@@ -884,6 +1572,10 @@ export async function registerLanding(db, input = {}, userId = null) {
 
 export function deleteLanding(db, id) {
   const landingId = sanitizeId(id);
+  const orders = db.prepare('SELECT id FROM landing_orders WHERE landing_id=?').all(landingId);
+  for (const o of orders) {
+    try { deleteLandingOrder(db, o.id); } catch {}
+  }
   db.prepare('DELETE FROM landing_visits WHERE landing_id=?').run(landingId);
   db.prepare('DELETE FROM landing_orders WHERE landing_id=?').run(landingId);
   db.prepare('DELETE FROM landings WHERE id=?').run(landingId);
@@ -891,6 +1583,7 @@ export function deleteLanding(db, id) {
 }
 
 export function getLandingOrders(db, id) {
+  ensureLandingOrderSchema(db);
   const landingId = sanitizeId(id);
   const orders = db.prepare('SELECT * FROM landing_orders WHERE landing_id=? ORDER BY created_at DESC LIMIT 100').all(landingId);
   return { landing_id: landingId, orders };

@@ -4,7 +4,7 @@ import {
   ShoppingBag, Truck, Send, Search, Filter, RefreshCw, 
   ExternalLink, Phone, MapPin, CheckCircle2, Clock, AlertTriangle, 
   Settings as SettingsIcon, Package, Copy, Check, MessageSquare, 
-  SlidersHorizontal, X, ArrowUpRight, ShieldCheck, ChevronRight, Pencil
+  SlidersHorizontal, X, ArrowUpRight, ShieldCheck, ChevronRight, Pencil, Trash2
 } from 'lucide-react';
 
 
@@ -78,11 +78,33 @@ async function validateAddressWithGoogle(address, commune, region) {
   }
 }
 
+function formatCompactVariant(packSelected, productName) {
+  const raw = String(packSelected || '1 Unidad').trim();
+  if (!raw) return '1 Unidad';
+  const prod = String(productName || '').trim();
+  if (prod && raw.toLowerCase().includes(prod.toLowerCase())) {
+    const cleaned = raw
+      .replace(new RegExp(prod.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), '')
+      .replace(/\s+/g, ' ')
+      .replace(/^\s*[-·]\s*|\s*[-·]\s*$/g, '')
+      .trim();
+    if (cleaned) return cleaned;
+  }
+  const parenMatch = /^(\d+\s*x)\s+.+?(\([^)]+\))$/i.exec(raw);
+  if (parenMatch) {
+    return `${parenMatch[1]} ${parenMatch[2]}`;
+  }
+  return raw;
+}
+
 const STATUS_CONFIG = {
   pending: { label: 'Pendiente Confirmación', color: '#f59e0b', bg: '#fef3c7', nightBg: '#3d2b14', nightColor: '#fcd34d', icon: Clock },
-  confirmed: { label: 'Confirmado WhatsApp', color: '#0284c7', bg: '#e0f2fe', nightBg: '#102e4d', nightColor: '#7dd3fc', icon: MessageSquare },
-  paid: { label: 'Pagado (Anticipado)', color: '#10b981', bg: '#d1fae5', nightBg: '#064e3b', nightColor: '#6ee7b7', icon: CheckCircle2 },
+  awaiting_confirmation: { label: 'Esperando Respuesta WA', color: '#3b82f6', bg: '#dbeafe', nightBg: '#172554', nightColor: '#93c5fd', icon: MessageSquare },
+  confirmed: { label: 'Confirmado WhatsApp', color: '#10b981', bg: '#d1fae5', nightBg: '#064e3b', nightColor: '#6ee7b7', icon: CheckCircle2 },
+  needs_review: { label: 'Requiere Revisión', color: '#ea580c', bg: '#ffedd5', nightBg: '#431407', nightColor: '#fdba74', icon: AlertTriangle },
   sent_to_supplier: { label: 'Enviado a Proveedor', color: '#8b5cf6', bg: '#ede9fe', nightBg: '#2a1b4e', nightColor: '#c4b5fd', icon: Send },
+  supplier_error: { label: 'Error Proveedor', color: '#ef4444', bg: '#fee2e2', nightBg: '#450a0a', nightColor: '#fca5a5', icon: AlertTriangle },
+  paid: { label: 'Pagado (Anticipado)', color: '#0284c7', bg: '#e0f2fe', nightBg: '#102e4d', nightColor: '#7dd3fc', icon: CheckCircle2 },
   shipped: { label: 'En Reparto (Guía)', color: '#2563eb', bg: '#dbeafe', nightBg: '#162b50', nightColor: '#93c5fd', icon: Truck },
   delivered: { label: 'Entregado (Cobrado)', color: '#16a34a', bg: '#dcfce7', nightBg: '#133527', nightColor: '#86efac', icon: CheckCircle2 },
   cancelled: { label: 'Cancelado', color: '#dc2626', bg: '#fee2e2', nightBg: '#3b161f', nightColor: '#fca5a5', icon: AlertTriangle }
@@ -90,7 +112,8 @@ const STATUS_CONFIG = {
 
 let cachedOrdersData = (() => {
   try {
-    localStorage.removeItem('nexora_landing_orders_cache_v3'); const raw = localStorage.getItem('nexora_landing_orders_cache_v3');
+    localStorage.removeItem('nexora_landing_orders_cache_v3');
+    const raw = localStorage.getItem('nexora_landing_orders_cache_v3');
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -112,10 +135,13 @@ export default function LandingOrdersPage({ toast = () => {} }) {
   const [showMappingModal, setShowMappingModal] = useState(false);
   const [editingOrder, setEditingOrder] = useState(null);
   const [viewingOrder, setViewingOrder] = useState(null);
+  const [orderAuditLogs, setOrderAuditLogs] = useState([]);
   const [geoResults, setGeoResults] = useState(() => loadGmapsCache());
   const [savingEdit, setSavingEdit] = useState(false);
   const [sendingOrderId, setSendingOrderId] = useState(null);
   const [updatingStatusId, setUpdatingStatusId] = useState(null);
+  const [deletingOrderId, setDeletingOrderId] = useState(null);
+  const [cleaningTest, setCleaningTest] = useState(false);
 
   // Mapping Form State
   const [mappings, setMappings] = useState([]);
@@ -148,8 +174,6 @@ export default function LandingOrdersPage({ toast = () => {} }) {
     }
   };
 
-  
-  // Auto-reload orders when global sale alert fires
   useEffect(() => {
     const handleNewOrder = () => {
       loadOrders(true);
@@ -161,6 +185,16 @@ export default function LandingOrdersPage({ toast = () => {} }) {
   useEffect(() => {
     loadOrders(Boolean(cachedOrdersData));
   }, [selectedLanding, selectedStatus]);
+
+  useEffect(() => {
+    if (!viewingOrder?.id) {
+      setOrderAuditLogs([]);
+      return;
+    }
+    api(`/landings/orders/${encodeURIComponent(viewingOrder.id)}/audit-logs`)
+      .then(res => setOrderAuditLogs(res?.logs || []))
+      .catch(() => setOrderAuditLogs([]));
+  }, [viewingOrder?.id, viewingOrder?.status]);
 
   // Validate addresses automatically via Google Maps Geocoding API
   useEffect(() => {
@@ -200,19 +234,96 @@ export default function LandingOrdersPage({ toast = () => {} }) {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const handleUpdateStatus = async (orderId, newStatus) => {
+  const handleUpdateStatus = async (orderId, newStatus, note = null) => {
     setUpdatingStatusId(orderId);
     try {
       await api(`/landings/orders/${encodeURIComponent(orderId)}/status`, {
         method: 'PUT',
-        body: { status: newStatus }
+        body: { status: newStatus, ...(note ? { note } : {}) }
       });
       toast(`Estado actualizado a: ${STATUS_CONFIG[newStatus]?.label || newStatus}`);
+      if (viewingOrder?.id === orderId) {
+        setViewingOrder(prev => prev ? { ...prev, status: newStatus } : null);
+      }
       await loadOrders(true);
     } catch (e) {
       toast('Error actualizando estado: ' + e.message);
     } finally {
       setUpdatingStatusId(null);
+    }
+  };
+
+  const handleRequestWhatsAppConfirmation = async (order, openManualFallback = true) => {
+    try {
+      const res = await api(`/landings/orders/${encodeURIComponent(order.id)}/whatsapp-confirm-request`, {
+        method: 'POST',
+        body: {}
+      });
+      if (res.sent_automatically) {
+        toast(`📲 ${res.message}`);
+      } else if (openManualFallback && res.wa_me_url) {
+        window.open(res.wa_me_url, '_blank', 'noopener,noreferrer');
+        toast('📲 Chat de WhatsApp abierto y pedido marcado en "Esperando Respuesta WA"');
+      } else {
+        toast(res.message);
+      }
+      if (viewingOrder?.id === order.id) {
+        setViewingOrder(prev => prev ? { ...prev, status: res.status } : null);
+      }
+      await loadOrders(true);
+    } catch (e) {
+      toast('Error al solicitar confirmación WhatsApp: ' + e.message);
+    }
+  };
+
+  const handleSimulateReply = async (order, replyText) => {
+    try {
+      const res = await api(`/landings/orders/${encodeURIComponent(order.id)}/whatsapp-reply`, {
+        method: 'POST',
+        body: { phone: order.customer_phone, text: replyText, channel: 'operator_verified' }
+      });
+      toast(`✅ Respuesta "${replyText}" registrada → Estado: ${STATUS_CONFIG[res.status_after]?.label || res.status_after}`);
+      if (viewingOrder?.id === order.id) {
+        setViewingOrder(prev => prev ? { ...prev, status: res.status_after, confirmation_reply: replyText } : null);
+      }
+      await loadOrders(true);
+    } catch (e) {
+      toast('Error registrando respuesta: ' + e.message);
+    }
+  };
+
+  const handleDeleteOrder = async (order) => {
+    if (!window.confirm(`¿Eliminar definitivamente el pedido #${order.order_number} de "${order.customer_name}" (${order.product_name})? Esto lo borrará de Pedidos Landings, Dashboard y Empaque.`)) return;
+    setDeletingOrderId(order.id);
+    try {
+      const res = await api(`/landings/orders/${encodeURIComponent(order.id)}`, {
+        method: 'DELETE'
+      });
+      toast(`🗑️ ${res.message || 'Pedido eliminado'}`);
+      if (viewingOrder?.id === order.id) setViewingOrder(null);
+      if (editingOrder?.id === order.id) setEditingOrder(null);
+      await loadOrders(true);
+    } catch (e) {
+      toast('Error al eliminar pedido: ' + e.message);
+    } finally {
+      setDeletingOrderId(null);
+    }
+  };
+
+  const handleCleanupTestOrders = async () => {
+    if (!window.confirm('¿Deseas eliminar todos los pedidos de prueba (Test / Prueba / teléfonos de prueba) y cancelados?')) return;
+    setCleaningTest(true);
+    try {
+      const res = await api('/landings/orders/cleanup-test', {
+        method: 'POST',
+        body: {}
+      });
+      toast(`🗑️ ${res.message}`);
+      await loadOrders(true);
+    } catch (e) {
+      toast('Error limpiando pedidos de prueba: ' + e.message);
+    } finally {
+      setCleaningTest(false);
     }
   };
 
@@ -249,21 +360,34 @@ export default function LandingOrdersPage({ toast = () => {} }) {
   };
 
   const handleSendToSupplier = async (order, forcedPlatform = null) => {
-    const platform = forcedPlatform || order.supplier_platform || 'Dropea';
+    const platform = forcedPlatform || order.supplier_platform || 'Dropi';
     const isDropi = String(platform).toLowerCase().includes('dropi');
     const label = isDropi ? 'Dropi Chile (vía Dropi MCP Oficial)' : platform;
-    if (!window.confirm(`¿Confirmas crear el pedido #${order.order_number} (${order.product_name}) directamente en ${label} para despacho contra entrega (CON RECAUDO)?`)) return;
+
+    // Guarda obligatoria de confirmación según GUIA_WHATSAPP_CONFIRMACION_Y_DESPACHO_NEXORA.md
+    if (order.status !== 'confirmed' && order.status !== 'paid') {
+      const confirmNow = window.confirm(
+        `⚠️ BARRERA DE SEGURIDAD NEXORA:\n\nEl pedido #${order.order_number} (${order.customer_name}) aún está en estado "${STATUS_CONFIG[order.status]?.label || order.status}".\n\nSegún el protocolo de despacho, solo se deben enviar al proveedor pedidos confirmados por el cliente vía WhatsApp.\n\n¿Confirmas que el cliente YA validó su pedido y dirección por WhatsApp para marcarlo como "Confirmado WhatsApp" y despacharlo a ${label}?`
+      );
+      if (!confirmNow) return;
+    } else {
+      if (!window.confirm(`¿Confirmas crear el pedido #${order.order_number} (${order.product_name}) directamente en ${label} para despacho contra entrega (CON RECAUDO)?`)) return;
+    }
 
     setSendingOrderId(order.id);
     try {
       const res = await api(`/landings/orders/${encodeURIComponent(order.id)}/send-supplier`, {
         method: 'POST',
-        body: { platform }
+        body: {
+          platform,
+          auto_confirm: true
+        }
       });
       toast(`🚀 ${res.message || 'Orden enviada a ' + label}`);
       await loadOrders(true);
     } catch (e) {
       toast('Error al enviar a proveedor: ' + e.message);
+      await loadOrders(true);
     } finally {
       setSendingOrderId(null);
     }
@@ -296,15 +420,17 @@ export default function LandingOrdersPage({ toast = () => {} }) {
     const cleanPhone = (order.customer_phone || '').replace(/[^0-9]/g, '');
     const phoneWithCode = cleanPhone.startsWith('56') ? cleanPhone : `56${cleanPhone}`;
     const text = encodeURIComponent(
-      `¡Hola ${order.customer_name}! 👋 Te contactamos de ${order.product_name} para confirmar tu pedido contra entrega de ${order.pack_selected} por un total de $${Number(order.total_price || 0).toLocaleString('es-CL')} a despachar a ${order.customer_commune || 'tu comuna'}, ${order.customer_address || ''}. ¿Nos confirmas para preparar el paquete hoy mismo? 📦🚚`
+      `¡Hola ${order.customer_name}! 👋 Te escribimos de *${order.product_name}* por tu pedido contra entrega #${order.order_number || '1'} (${order.pack_selected} · Total: $${Number(order.total_price || 0).toLocaleString('es-CL')}) con envío a *${order.customer_address || ''}, ${order.customer_commune || 'tu comuna'}*.\n\nPor favor responde *SÍ* para confirmar tu pedido y dirección, o *NO* si deseas cancelar. 📦🚚`
     );
     return `https://wa.me/${phoneWithCode}?text=${text}`;
   };
 
-  const pendingOrders = orders.filter(o => o.status === 'pending');
-  const paidOrders = orders.filter(o => o.status === 'paid');
+  const pendingOrders = orders.filter(o => ['pending', 'awaiting_confirmation', 'needs_review'].includes(o.status));
+  const confirmedOrders = orders.filter(o => o.status === 'confirmed' || o.status === 'paid');
   const supplierOrders = orders.filter(o => ['sent_to_supplier', 'shipped', 'delivered'].includes(o.status));
-  const totalAmount = orders.reduce((sum, o) => sum + (o.total_price || 0), 0);
+  const totalAmount = orders
+    .filter(o => o.status !== 'cancelled')
+    .reduce((sum, o) => sum + (o.total_price || 0), 0);
 
   return (
     <div className="nx-orders-container">
@@ -392,7 +518,7 @@ export default function LandingOrdersPage({ toast = () => {} }) {
           background: #ffffff;
           border: 1px solid #e2e8f0;
           border-radius: 9px;
-          overflow: hidden;
+          overflow-x: auto;
           width: 100%;
           box-shadow: 0 1px 4px rgba(0,0,0,0.02);
         }
@@ -402,6 +528,7 @@ export default function LandingOrdersPage({ toast = () => {} }) {
         }
         .nx-table {
           width: 100%;
+          min-width: 980px;
           border-collapse: collapse;
           table-layout: fixed;
           font-size: 11.5px;
@@ -421,7 +548,9 @@ export default function LandingOrdersPage({ toast = () => {} }) {
           text-transform: uppercase;
           letter-spacing: 0.04em;
           white-space: nowrap;
-          padding: 8px 4px;
+          padding: 8px 6px;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         [data-theme="night"] .nx-table th {
           color: #94a3b8;
@@ -442,8 +571,10 @@ export default function LandingOrdersPage({ toast = () => {} }) {
           background: #1b304f;
         }
         .nx-table td {
-          padding: 7px 4px;
+          padding: 7px 6px;
           vertical-align: middle;
+          overflow: hidden;
+          box-sizing: border-box;
         }
         .nx-cust-name {
           font-weight: 800;
@@ -489,12 +620,28 @@ export default function LandingOrdersPage({ toast = () => {} }) {
           border: 1px solid #273b57;
           color: #93c5fd;
         }
+        .nx-variant-badge {
+          background: rgba(0, 102, 255, 0.12);
+          color: #3b82f6;
+          border: 1px solid rgba(59, 130, 246, 0.28);
+          font-size: 0.7rem;
+          font-weight: 700;
+          padding: 3px 6px;
+          border-radius: 5px;
+          display: block;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          box-sizing: border-box;
+          text-align: center;
+        }
         .nx-btn-send {
           background: #0066ff;
           color: #ffffff;
           border: none;
           padding: 4px 8px;
-          border-radius: 4px;
+          border-radius: 5px;
           font-size: 10.5px;
           font-weight: 700;
           cursor: pointer;
@@ -512,7 +659,7 @@ export default function LandingOrdersPage({ toast = () => {} }) {
           color: var(--muted, #64748b);
           border: 1px solid var(--border, #cbd5e1);
           padding: 4px 7px;
-          border-radius: 4px;
+          border-radius: 5px;
           font-size: 10.5px;
           font-weight: 600;
           cursor: pointer;
@@ -530,6 +677,24 @@ export default function LandingOrdersPage({ toast = () => {} }) {
           background: rgba(0, 102, 255, 0.08);
           color: #0066ff;
           border-color: #0066ff;
+        }
+        .nx-btn-del {
+          background: rgba(239, 68, 68, 0.1);
+          color: #ef4444;
+          border: 1px solid rgba(239, 68, 68, 0.3);
+          padding: 4px 6px;
+          border-radius: 5px;
+          font-size: 10.5px;
+          font-weight: 700;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.15s ease;
+        }
+        .nx-btn-del:hover {
+          background: #ef4444;
+          color: #ffffff;
         }
       `}</style>
 
@@ -553,11 +718,32 @@ export default function LandingOrdersPage({ toast = () => {} }) {
             </span>
           </div>
           <p style={{ margin: '2px 0 0 0', color: 'var(--muted, #64748b)', fontSize: '0.8rem' }}>
-            Centralización de pedidos recibidos desde landings en <b>pidedirecto.cyou</b> · Sincronización con Dropea y Dropi Chile
+            Confirmación por WhatsApp auditada + Despacho directo a Dropi Chile (MCP) y Bodega Local
           </p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+          {orders.length > 0 && (
+            <button
+              className="outline"
+              onClick={handleCleanupTestOrders}
+              disabled={cleaningTest}
+              title="Eliminar pedidos de prueba (Test / Prueba) o cancelados"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '0.76rem',
+                padding: '5px 10px',
+                color: '#ef4444',
+                borderColor: 'rgba(239, 68, 68, 0.35)'
+              }}
+            >
+              <Trash2 size={12} />
+              {cleaningTest ? 'Limpiando…' : 'Limpiar Pedidos de Prueba'}
+            </button>
+          )}
+
           <button 
             className="outline" 
             onClick={() => loadOrders()} 
@@ -595,9 +781,14 @@ export default function LandingOrdersPage({ toast = () => {} }) {
         </div>
 
         <div className="nx-kpi-card">
-          <span className="nx-kpi-title" style={{ color: '#f59e0b' }}>🟡 PENDIENTES CONFIRMACIÓN</span>
+          <span className="nx-kpi-title" style={{ color: '#f59e0b' }}>🟡 POR CONFIRMAR / REVISAR</span>
           <div className="nx-kpi-val" style={{ color: '#f59e0b' }}>
             {pendingOrders.length}
+            {confirmedOrders.length > 0 && (
+              <span style={{ fontSize: '0.75rem', color: '#10b981', marginLeft: '8px', fontWeight: 700 }}>
+                ({confirmedOrders.length} listos p/ despacho)
+              </span>
+            )}
           </div>
         </div>
 
@@ -661,41 +852,41 @@ export default function LandingOrdersPage({ toast = () => {} }) {
         </div>
       </div>
 
-      {/* Orders Table con anchos perfectamente calibrados */}
+      {/* Orders Table con anchos calibrados sin desborde */}
       <div className="nx-table-card">
         {orders.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '36px 14px', color: 'var(--muted, #64748b)' }}>
             <ShoppingBag size={36} style={{ margin: '0 auto 6px', opacity: 0.35 }} />
             <h3 style={{ margin: '0 0 4px 0', fontSize: '0.92rem', color: 'var(--text, #0f172a)' }}>No hay pedidos contra entrega que coincidan</h3>
-            <p style={{ margin: 0, fontSize: '0.78rem' }}>
-              Cuando los clientes ordenen desde <b>pidedirecto.cyou</b>, aparecerán aquí en tiempo real para confirmación y despacho.
+            <p style={{ margin: '0 0', fontSize: '0.78rem' }}>
+              Cuando los clientes ordenen desde <b>pidedirecto.cyou</b>, aparecerán aquí en tiempo real para confirmación por WhatsApp y despacho.
             </p>
           </div>
         ) : (
           <table className="nx-table">
             <colgroup>
-              {/* 1. N° Pedido: 38px, solo número */}
-              <col style={{ width: '38px' }} />
-              {/* 2. Fecha / Hora: 90px (espacio suficiente para que no choque con Landing) */}
-              <col style={{ width: '90px' }} />
-              {/* 3. Landing: 22% proporcionado */}
-              <col style={{ width: '22%' }} />
-              {/* 4. SKU & Proveedor: 130px (para que el código SKU no se corte) */}
-              <col style={{ width: '130px' }} />
-              {/* 5. Variante: 70px */}
-              <col style={{ width: '70px' }} />
-              {/* 6. Cliente / Despacho: 180px (para nombre completo sin puntos suspensivos) */}
-              <col style={{ width: '180px' }} />
-              {/* 7. Total: 65px (alineado a la izquierda, pegadito al cliente) */}
-              <col style={{ width: '65px' }} />
-              {/* 8. Estado: 185px (botón completo con altura 28px, bordes definidos y margen) */}
-              <col style={{ width: '185px' }} />
-              {/* 9. Acción: 185px (espacio amplio para ambos botones) */}
-              <col style={{ width: '185px' }} />
+              {/* 1. N° Pedido */}
+              <col style={{ width: '40px' }} />
+              {/* 2. Fecha / Hora */}
+              <col style={{ width: '86px' }} />
+              {/* 3. Landing / Origen */}
+              <col style={{ width: '17%' }} />
+              {/* 4. SKU & Proveedor */}
+              <col style={{ width: '118px' }} />
+              {/* 5. Variante (con ancho suficiente y overflow hidden para no pisar Cliente) */}
+              <col style={{ width: '125px' }} />
+              {/* 6. Cliente / Despacho */}
+              <col style={{ width: '195px' }} />
+              {/* 7. Total */}
+              <col style={{ width: '74px' }} />
+              {/* 8. Estado */}
+              <col style={{ width: '175px' }} />
+              {/* 9. Acción (Confirmar + Despachar + Editar + Eliminar) */}
+              <col style={{ width: '235px' }} />
             </colgroup>
             <thead>
               <tr>
-                <th style={{ paddingLeft: '12px', textAlign: 'left' }}>N°</th>
+                <th style={{ paddingLeft: '10px', textAlign: 'left' }}>N°</th>
                 <th style={{ textAlign: 'left' }}>FECHA / HORA</th>
                 <th style={{ textAlign: 'left' }}>LANDING / ORIGEN</th>
                 <th style={{ textAlign: 'left' }}>SKU & PROVEEDOR</th>
@@ -703,44 +894,46 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                 <th style={{ textAlign: 'left' }}>CLIENTE / DESPACHO</th>
                 <th style={{ textAlign: 'left', paddingLeft: '4px' }}>TOTAL</th>
                 <th style={{ textAlign: 'center' }}>ESTADO</th>
-                <th style={{ textAlign: 'center', paddingRight: '12px' }}>ACCIÓN</th>
+                <th style={{ textAlign: 'center', paddingRight: '10px' }}>ACCIÓN</th>
               </tr>
             </thead>
             <tbody>
               {orders.map(order => {
                 const st = STATUS_CONFIG[order.status] || STATUS_CONFIG.pending;
                 const isSent = order.status === 'sent_to_supplier' || order.status === 'shipped' || order.status === 'delivered';
+                const isConfirmed = order.status === 'confirmed' || order.status === 'paid';
                 const geo = getOrderGeo(order);
+                const compactVariant = formatCompactVariant(order.pack_selected, order.product_name);
 
                 return (
                   <tr key={order.id}>
-                    {/* N° Pedido: clic para abrir pop-up detallado */}
+                    {/* N° Pedido */}
                     <td
-                      style={{ paddingLeft: '12px', textAlign: 'left', whiteSpace: 'nowrap', cursor: 'pointer' }}
+                      style={{ paddingLeft: '10px', textAlign: 'left', whiteSpace: 'nowrap', cursor: 'pointer' }}
                       onClick={() => setViewingOrder(order)}
-                      title="Ver ficha detallada del pedido y validación Google Maps"
+                      title="Ver ficha detallada, auditoría WhatsApp y validación Google Maps"
                     >
                       <b style={{ color: '#0066ff', fontSize: '13px', textDecoration: 'underline', textUnderlineOffset: '2px' }}>
-                        {order.order_number || '1'}
+                        #{order.order_number || '1'}
                       </b>
                     </td>
 
                     {/* Fecha / Hora */}
-                    <td style={{ textAlign: 'left', whiteSpace: 'nowrap', color: 'var(--muted, #64748b)', fontSize: '0.76rem' }}>
+                    <td style={{ textAlign: 'left', whiteSpace: 'nowrap', color: 'var(--muted, #64748b)', fontSize: '0.75rem' }}>
                       <div style={{ fontWeight: 600 }}>{new Date(order.created_at).toLocaleDateString('es-CL')}</div>
                       <small style={{ fontSize: '0.68rem', opacity: 0.85 }}>{new Date(order.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}</small>
                     </td>
 
                     {/* Landing Origen */}
                     <td style={{ textAlign: 'left' }}>
-                      <div className="nx-prod-title">
+                      <div className="nx-prod-title" title={order.product_name || order.landing_id}>
                         {order.product_name || order.landing_id}
                       </div>
                       <a 
                         href={`https://${order.landing_id}.pidedirecto.cyou`} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        style={{ fontSize: '0.7rem', color: '#0066ff', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '2px', marginTop: '1px', fontWeight: 600 }}
+                        style={{ fontSize: '0.68rem', color: '#0066ff', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '2px', marginTop: '1px', fontWeight: 600 }}
                       >
                         {order.landing_id}.pidedirecto.cyou
                         <ArrowUpRight size={9} />
@@ -749,66 +942,64 @@ export default function LandingOrdersPage({ toast = () => {} }) {
 
                     {/* SKU Maestro & Proveedor */}
                     <td style={{ textAlign: 'left' }}>
-                      <div className="nx-sku-box">
-                        <Package size={10} style={{ opacity: 0.7 }} />
-                        {order.master_sku || `SKU-${order.landing_id.toUpperCase()}-01`}
+                      <div className="nx-sku-box" title={order.master_sku}>
+                        <Package size={10} style={{ opacity: 0.7, flexShrink: 0 }} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {order.master_sku || `SKU-${order.landing_id.toUpperCase()}-01`}
+                        </span>
                       </div>
                       <div style={{ fontSize: '0.68rem', color: 'var(--muted, #64748b)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        <b>{order.supplier_platform || 'Dropea'}</b> {order.supplier_product_id ? `(#${order.supplier_product_id})` : ''}
+                        <b>{order.supplier_platform || 'Dropi'}</b> {order.supplier_product_id ? `(#${order.supplier_product_id})` : ''}
                       </div>
                     </td>
 
-                    {/* Pack / Variante */}
-                    <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                      <span style={{ 
-                        background: 'rgba(0, 102, 255, 0.08)', 
-                        color: '#0066ff', 
-                        fontSize: '0.72rem', 
-                        fontWeight: 700, 
-                        padding: '2px 5px', 
-                        borderRadius: '3px',
-                        display: 'inline-block'
-                      }}>
-                        {order.pack_selected || '1 Unidad'}
+                    {/* Pack / Variante: contenido acotado dentro de su celda sin invadir Cliente */}
+                    <td style={{ textAlign: 'center', padding: '7px 6px' }}>
+                      <span
+                        className="nx-variant-badge"
+                        title={order.pack_selected || '1 Unidad'}
+                      >
+                        {compactVariant}
                       </span>
                     </td>
 
-                    {/* Cliente / Despacho: Compacto con validación Google Maps y clic para abrir pop-up */}
+                    {/* Cliente / Despacho */}
                     <td
                       style={{ textAlign: 'left', cursor: 'pointer' }}
                       onClick={() => setViewingOrder(order)}
-                      title="Clic para abrir ficha detallada y dirección exacta en Google Maps"
+                      title="Clic para abrir ficha detallada, auditoría WhatsApp y dirección en Google Maps"
                     >
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        {/* Línea 1: Nombre Cliente */}
-                        <div className="nx-cust-name" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <span>{order.customer_name}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', overflow: 'hidden' }}>
+                        <div className="nx-cust-name">
+                          {order.customer_name}
                         </div>
 
-                        {/* Línea 2: Teléfono WhatsApp + Badge Google Maps */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'nowrap' }}>
-                          <a 
-                            href={getWhatsAppLink(order)} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            onClick={e => e.stopPropagation()}
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleRequestWhatsAppConfirmation(order, true);
+                            }}
                             style={{ 
                               display: 'inline-flex', 
                               alignItems: 'center', 
                               gap: '3px', 
                               background: '#16a34a', 
                               color: '#ffffff', 
-                              padding: '1px 5px', 
+                              border: 'none',
+                              padding: '2px 5px', 
                               borderRadius: '3px', 
-                              fontSize: '0.68rem', 
+                              fontSize: '0.67rem', 
                               fontWeight: 700, 
-                              textDecoration: 'none' 
+                              cursor: 'pointer',
+                              flexShrink: 0
                             }}
-                            title="Confirmar por WhatsApp"
+                            title="Enviar mensaje de confirmación por WhatsApp y pasar a Esperando Respuesta"
                           >
                             <Phone size={9} />
                             {order.customer_phone}
-                          </a>
+                          </button>
 
                           {geo?.status === 'valid' ? (
                             <span style={{
@@ -818,10 +1009,11 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                               background: 'rgba(34, 197, 94, 0.15)',
                               color: '#22c55e',
                               border: '1px solid rgba(34, 197, 94, 0.35)',
-                              padding: '0 5px',
+                              padding: '0 4px',
                               borderRadius: '3px',
-                              fontSize: '9.5px',
-                              fontWeight: 800
+                              fontSize: '9px',
+                              fontWeight: 800,
+                              flexShrink: 0
                             }}>
                               ✓ Validada
                             </span>
@@ -833,31 +1025,33 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                               background: 'rgba(245, 158, 11, 0.16)',
                               color: '#fbbf24',
                               border: '1px solid rgba(245, 158, 11, 0.35)',
-                              padding: '0 5px',
+                              padding: '0 4px',
                               borderRadius: '3px',
-                              fontSize: '9.5px',
-                              fontWeight: 800
+                              fontSize: '9px',
+                              fontWeight: 800,
+                              flexShrink: 0
                             }}>
                               ⚠ Revisar
                             </span>
                           ) : null}
                         </div>
 
-                        {/* Línea 3: Comuna + botón compacto Ver dirección */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10.5px', color: '#94a3b8', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           <MapPin size={10} style={{ color: '#38bdf8', flexShrink: 0 }} />
-                          <span style={{ fontWeight: 700, color: 'var(--text, #e2e8f0)' }}>{order.customer_commune || 'Comuna'}</span>
-                          <span style={{ color: '#38bdf8', fontSize: '10px', fontWeight: 600 }}>· Ver mapa ↗</span>
+                          <span style={{ fontWeight: 700, color: 'var(--text, #e2e8f0)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {order.customer_commune || 'Comuna'}
+                          </span>
+                          <span style={{ color: '#38bdf8', fontSize: '10px', fontWeight: 600, flexShrink: 0 }}>· Mapa ↗</span>
                         </div>
                       </div>
                     </td>
 
-                    {/* Total a Cobrar: pegadito a la izquierda al lado del cliente */}
-                    <td style={{ textAlign: 'left', paddingLeft: '4px', fontWeight: 800, fontSize: '0.88rem', color: '#16a34a', whiteSpace: 'nowrap' }}>
+                    {/* Total a Cobrar */}
+                    <td style={{ textAlign: 'left', paddingLeft: '4px', fontWeight: 800, fontSize: '0.86rem', color: '#16a34a', whiteSpace: 'nowrap' }}>
                       {money(order.total_price)}
                     </td>
 
-                    {/* Estado: Botón de estado completo con bordes limpios, altura 28px y espacio propio */}
+                    {/* Estado */}
                     <td style={{ textAlign: 'center', whiteSpace: 'nowrap', padding: '6px 4px' }}>
                       <select 
                         value={order.status}
@@ -868,14 +1062,14 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                           color: document.documentElement.dataset.theme === 'night' ? st.nightColor : st.color, 
                           border: `1.5px solid ${st.color}`, 
                           fontWeight: 700, 
-                          fontSize: '0.72rem', 
+                          fontSize: '0.7rem', 
                           borderRadius: '6px', 
-                          padding: '0 8px',
+                          padding: '0 6px',
                           height: '28px',
                           cursor: 'pointer',
                           outline: 'none',
                           width: '100%',
-                          maxWidth: '175px',
+                          maxWidth: '168px',
                           boxSizing: 'border-box'
                         }}
                       >
@@ -883,18 +1077,60 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                           <option key={stKey} value={stKey}>{stVal.label}</option>
                         ))}
                       </select>
+                      {order.confirmation_reply && (
+                        <div
+                          title={`Respuesta cliente: ${order.confirmation_reply}`}
+                          style={{ fontSize: '0.64rem', marginTop: '2px', color: '#38bdf8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        >
+                          💬 "{order.confirmation_reply}"
+                        </div>
+                      )}
+                      {order.dispatch_error && order.status === 'supplier_error' && (
+                        <div
+                          title={order.dispatch_error}
+                          style={{ fontSize: '0.64rem', marginTop: '2px', color: '#f87171', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        >
+                          ⚠ {order.dispatch_error}
+                        </div>
+                      )}
                       {order.guide_number && (
-                        <div style={{ fontSize: '0.68rem', marginTop: '2px', color: '#0066ff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div style={{ fontSize: '0.66rem', marginTop: '2px', color: '#0066ff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           Guía: <b>{order.guide_number}</b>
                         </div>
                       )}
                     </td>
 
-                    {/* Acción: Botón Despacho + Botón Modificar Pedido */}
-                    <td style={{ textAlign: 'center', paddingRight: '12px', whiteSpace: 'nowrap' }}>
-                      <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                    {/* Acción: Confirmar WA + Enviar a Proveedor + Editar + Eliminar */}
+                    <td style={{ textAlign: 'center', paddingRight: '10px', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                        {!isSent && !isConfirmed && order.status !== 'cancelled' && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateStatus(order.id, 'confirmed', 'Confirmado por operador tras verificar WhatsApp')}
+                            disabled={updatingStatusId === order.id}
+                            title="Marcar pedido como Confirmado por WhatsApp (habilita despacho)"
+                            style={{
+                              background: 'rgba(16, 185, 129, 0.15)',
+                              color: '#10b981',
+                              border: '1px solid rgba(16, 185, 129, 0.45)',
+                              height: '28px',
+                              padding: '0 7px',
+                              borderRadius: '5px',
+                              fontSize: '10px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px'
+                            }}
+                          >
+                            <Check size={11} />
+                            Confirmar
+                          </button>
+                        )}
+
                         {isSent ? (
-                          <span style={{ color: '#16a34a', fontSize: '0.72rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <span style={{ color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px', padding: '0 4px' }}>
                             <CheckCircle2 size={12} />
                             Despachado
                           </span>
@@ -902,15 +1138,25 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                           <button 
                             className="nx-btn-send"
                             onClick={() => handleSendToSupplier(order)}
-                            disabled={sendingOrderId === order.id}
+                            disabled={sendingOrderId === order.id || order.status === 'cancelled'}
+                            title={
+                              isConfirmed
+                                ? 'Pedido confirmado: clic para crear orden en el proveedor'
+                                : 'Requiere confirmación WhatsApp antes de despachar'
+                            }
                             style={{ 
-                              background: order.supplier_platform === 'Dropi' ? '#ea580c' : '#0066ff',
+                              background: !isConfirmed
+                                ? 'rgba(234, 88, 12, 0.72)'
+                                : (order.supplier_platform === 'Dropi' ? '#ea580c' : '#0066ff'),
                               height: '28px',
-                              padding: '0 9px'
+                              padding: '0 8px',
+                              opacity: order.status === 'cancelled' ? 0.4 : 1
                             }}
                           >
-                            <Send size={11} />
-                            {sendingOrderId === order.id ? '…' : (order.supplier_platform === 'Dropi' ? 'Enviar a Dropi MCP' : `Enviar a ${order.supplier_platform || 'Dropea'}`)}
+                            <Send size={10} />
+                            {sendingOrderId === order.id
+                              ? '…'
+                              : (order.supplier_platform === 'Dropi' ? 'Dropi MCP' : `Enviar`)}
                           </button>
                         )}
 
@@ -920,11 +1166,24 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                           title="Modificar datos del pedido (cliente, dirección, pack, total)"
                           style={{
                             height: '28px',
-                            padding: '0 8px'
+                            padding: '0 6px'
                           }}
                         >
                           <Pencil size={11} />
-                          Editar
+                        </button>
+
+                        <button
+                          type="button"
+                          className="nx-btn-del"
+                          onClick={() => handleDeleteOrder(order)}
+                          disabled={deletingOrderId === order.id}
+                          title="Eliminar este pedido (limpia pedido de prueba)"
+                          style={{
+                            height: '28px',
+                            padding: '0 6px'
+                          }}
+                        >
+                          <Trash2 size={11} />
                         </button>
                       </div>
                     </td>
@@ -936,22 +1195,15 @@ export default function LandingOrdersPage({ toast = () => {} }) {
         )}
       </div>
 
-      
-      {/* Modal: FICHA DETALLADA DEL PEDIDO Y VALIDACIÓN GOOGLE MAPS */}
+      {/* Modal: FICHA DETALLADA DEL PEDIDO, AUDITORÍA WHATSAPP Y VALIDACIÓN GOOGLE MAPS */}
       {viewingOrder && (() => {
         const geo = getOrderGeo(viewingOrder);
-        const st = STATUS_CONFIG[viewingOrder.status] || STATUS_CONFIG.pending;
         const exactAddr = geo?.formatted || `${viewingOrder.customer_address || ''}, ${viewingOrder.customer_commune || ''}, Chile`;
         const mapQuery = geo?.lat && geo?.lng
           ? `${geo.lat},${geo.lng}`
           : encodeURIComponent(`${viewingOrder.customer_address || ''}, ${viewingOrder.customer_commune || ''}, Chile`);
         const cleanPhone = (viewingOrder.customer_phone || '').replace(/[^0-9]/g, '');
         const phoneWithCode = cleanPhone.startsWith('56') ? cleanPhone : `56${cleanPhone}`;
-        const waConfirmedMsg = encodeURIComponent(
-          `¡Hola ${viewingOrder.customer_name}! 👋 Te escribimos de *${viewingOrder.product_name}* para informarte que tu pedido #${viewingOrder.order_number || '1'} (${viewingOrder.pack_selected || '1 Unidad'} · Total contra entrega: *${money(viewingOrder.total_price)}*) ya está confirmado.
-
-📍 Tu dirección de despacho en *${exactAddr}* fue **validada correctamente** ✅ en nuestro sistema. ¡Pronto te enviaremos tu código de seguimiento! 📦🚚`
-        );
         const waAskAddressMsg = encodeURIComponent(
           `¡Hola ${viewingOrder.customer_name}! 👋 Te escribimos por tu pedido #${viewingOrder.order_number || '1'} de *${viewingOrder.product_name}*. Para despachar tu paquete sin demoras en *${viewingOrder.customer_commune || 'tu comuna'}*, ¿nos podrías confirmar el nombre exacto de tu calle, numeración o alguna referencia de tu domicilio (actualmente tenemos registrado: "${viewingOrder.customer_address || ''}")? ¡Muchas gracias! 📍🚚`
         );
@@ -976,7 +1228,7 @@ export default function LandingOrdersPage({ toast = () => {} }) {
               className="nx-kpi-card"
               onClick={e => e.stopPropagation()}
               style={{
-                maxWidth: '640px',
+                maxWidth: '660px',
                 width: '100%',
                 borderRadius: '14px',
                 padding: '18px 20px',
@@ -988,7 +1240,7 @@ export default function LandingOrdersPage({ toast = () => {} }) {
             >
               {/* Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '12px', marginBottom: '14px', borderBottom: '1px solid rgba(148, 163, 184, 0.18)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <span style={{ background: '#0066ff', color: '#fff', fontWeight: 800, fontSize: '0.9rem', padding: '4px 10px', borderRadius: '7px' }}>
                     Pedido #{viewingOrder.order_number || '1'}
                   </span>
@@ -1008,7 +1260,7 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                 </button>
               </div>
 
-              {/* Cuadradito 1: Resumen del Pedido y Cliente */}
+              {/* Resumen del Pedido y Cliente */}
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
@@ -1042,7 +1294,129 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                 </div>
               </div>
 
-              {/* Cuadradito 2: Validación Google Maps */}
+              {/* Estado de Confirmación WhatsApp y Simulador/Registro Rápido Sí/No */}
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.45)',
+                border: '1px solid rgba(59, 130, 246, 0.3)',
+                borderRadius: '10px',
+                padding: '12px 14px',
+                marginBottom: '14px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#93c5fd', textTransform: 'uppercase' }}>
+                    📲 Flujo de Confirmación WhatsApp → Proveedor
+                  </div>
+                  <span style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 800,
+                    padding: '2px 8px',
+                    borderRadius: '999px',
+                    background: 'rgba(59, 130, 246, 0.15)',
+                    color: '#60a5fa'
+                  }}>
+                    Estado: {STATUS_CONFIG[viewingOrder.status]?.label || viewingOrder.status}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: orderAuditLogs.length > 0 ? '10px' : 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => handleRequestWhatsAppConfirmation(viewingOrder, true)}
+                    style={{
+                      background: '#16a34a',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '7px',
+                      padding: '7px 11px',
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    <Phone size={13} />
+                    1. Enviar Solicitud Confirmación WA
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSimulateReply(viewingOrder, 'Sí, confirmo mi pedido y dirección')}
+                    style={{
+                      background: 'rgba(16, 185, 129, 0.18)',
+                      color: '#34d399',
+                      border: '1px solid rgba(16, 185, 129, 0.45)',
+                      borderRadius: '7px',
+                      padding: '7px 11px',
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ✅ Cliente respondió SÍ (Confirmar)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSimulateReply(viewingOrder, 'No, deseo cancelar el pedido')}
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.15)',
+                      color: '#f87171',
+                      border: '1px solid rgba(239, 68, 68, 0.35)',
+                      borderRadius: '7px',
+                      padding: '7px 11px',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ❌ Cliente respondió NO (Cancelar)
+                  </button>
+
+                  <a
+                    href={`https://wa.me/${phoneWithCode}?text=${waAskAddressMsg}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      background: 'rgba(245, 158, 11, 0.16)',
+                      color: '#fbbf24',
+                      border: '1px solid rgba(245, 158, 11, 0.4)',
+                      padding: '7px 11px',
+                      borderRadius: '7px',
+                      fontWeight: 700,
+                      fontSize: '0.75rem',
+                      textDecoration: 'none'
+                    }}
+                  >
+                    <MapPin size={13} />
+                    Pedir Referencia / N° Casa
+                  </a>
+                </div>
+
+                {orderAuditLogs.length > 0 && (
+                  <div style={{ borderTop: '1px solid rgba(148, 163, 184, 0.15)', paddingTop: '8px', maxHeight: '110px', overflowY: 'auto' }}>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px', textTransform: 'uppercase' }}>
+                      Registro de Auditoría ({orderAuditLogs.length})
+                    </div>
+                    {orderAuditLogs.slice(0, 6).map(log => (
+                      <div key={log.id} style={{ fontSize: '0.71rem', color: '#cbd5e1', marginBottom: '3px', display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <b>[{log.channel}]</b> {log.message_text} ({log.status_before} → <b>{log.status_after}</b>)
+                        </span>
+                        <span style={{ color: '#64748b', flexShrink: 0 }}>
+                          {new Date(log.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Validación Google Maps */}
               <div style={{
                 background: geo?.status === 'valid' ? 'rgba(22, 163, 74, 0.08)' : 'rgba(245, 158, 11, 0.08)',
                 border: `1.5px solid ${geo?.status === 'valid' ? '#22c55e' : '#f59e0b'}`,
@@ -1075,21 +1449,19 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                   </div>
 
                   {geo?.formatted && (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
-                      <div>
-                        <span style={{ color: '#94a3b8', fontSize: '0.74rem', fontWeight: 600 }}>Dirección Exacta Google Maps: </span>
-                        <b style={{ color: '#22c55e' }}>{geo.formatted}</b>
-                      </div>
+                    <div>
+                      <span style={{ color: '#94a3b8', fontSize: '0.74rem', fontWeight: 600 }}>Dirección Exacta Google Maps: </span>
+                      <b style={{ color: '#22c55e' }}>{geo.formatted}</b>
                     </div>
                   )}
                 </div>
 
                 {/* Mapa Google Maps interactivo */}
-                <div style={{ marginTop: '10px', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(148, 163, 184, 0.25)', height: '195px', background: '#0f172a' }}>
+                <div style={{ marginTop: '10px', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(148, 163, 184, 0.25)', height: '185px', background: '#0f172a' }}>
                   <iframe
                     title="Ubicación Google Maps"
                     width="100%"
-                    height="195"
+                    height="185"
                     style={{ border: 0, display: 'block' }}
                     loading="lazy"
                     allowFullScreen
@@ -1098,58 +1470,9 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                 </div>
               </div>
 
-              {/* Cuadradito 3: Acciones Rápidas WhatsApp y Despacho */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <a
-                    href={`https://wa.me/${phoneWithCode}?text=${waConfirmedMsg}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px',
-                      background: '#16a34a',
-                      color: '#ffffff',
-                      padding: '9px 12px',
-                      borderRadius: '8px',
-                      fontWeight: 800,
-                      fontSize: '0.78rem',
-                      textDecoration: 'none',
-                      textAlign: 'center'
-                    }}
-                  >
-                    <Phone size={14} />
-                    WhatsApp: Confirmar Pedido + Dirección OK
-                  </a>
-
-                  <a
-                    href={`https://wa.me/${phoneWithCode}?text=${waAskAddressMsg}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px',
-                      background: 'rgba(245, 158, 11, 0.16)',
-                      color: '#fbbf24',
-                      border: '1px solid rgba(245, 158, 11, 0.4)',
-                      padding: '9px 12px',
-                      borderRadius: '8px',
-                      fontWeight: 700,
-                      fontSize: '0.78rem',
-                      textDecoration: 'none',
-                      textAlign: 'center'
-                    }}
-                  >
-                    <MapPin size={14} />
-                    WhatsApp: Pedir Referencia / N° Casa
-                  </a>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid rgba(148, 163, 184, 0.18)', gap: '8px' }}>
+              {/* Footer Actions */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid rgba(148, 163, 184, 0.18)', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '6px' }}>
                   <button
                     type="button"
                     className="nx-btn-edit"
@@ -1161,33 +1484,44 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                     style={{ height: '32px', padding: '0 12px' }}
                   >
                     <Pencil size={12} />
-                    Editar Datos del Pedido
+                    Editar Datos
                   </button>
 
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      type="button"
-                      className="nx-btn-send"
-                      onClick={() => {
-                        const ord = viewingOrder;
-                        setViewingOrder(null);
-                        handleSendToSupplier(ord);
-                      }}
-                      style={{ height: '32px', padding: '0 14px', background: '#0066ff' }}
-                    >
-                      <Send size={12} />
-                      {viewingOrder.supplier_platform === 'Dropi' ? 'Crear Pedido en Dropi MCP' : `Enviar a ${viewingOrder.supplier_platform || 'Dropea'}`}
-                    </button>
+                  <button
+                    type="button"
+                    className="nx-btn-del"
+                    onClick={() => handleDeleteOrder(viewingOrder)}
+                    disabled={deletingOrderId === viewingOrder.id}
+                    style={{ height: '32px', padding: '0 12px', gap: '4px' }}
+                  >
+                    <Trash2 size={12} />
+                    Eliminar Pedido
+                  </button>
+                </div>
 
-                    <button
-                      type="button"
-                      className="outline"
-                      onClick={() => setViewingOrder(null)}
-                      style={{ height: '32px', padding: '0 14px', fontSize: '0.78rem' }}
-                    >
-                      Cerrar
-                    </button>
-                  </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="nx-btn-send"
+                    onClick={() => {
+                      const ord = viewingOrder;
+                      setViewingOrder(null);
+                      handleSendToSupplier(ord);
+                    }}
+                    style={{ height: '32px', padding: '0 14px', background: '#ea580c' }}
+                  >
+                    <Send size={12} />
+                    {viewingOrder.supplier_platform === 'Dropi' ? 'Crear Pedido en Dropi MCP' : `Enviar a ${viewingOrder.supplier_platform || 'Proveedor'}`}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="outline"
+                    onClick={() => setViewingOrder(null)}
+                    style={{ height: '32px', padding: '0 14px', fontSize: '0.78rem' }}
+                  >
+                    Cerrar
+                  </button>
                 </div>
               </div>
             </div>
@@ -1203,7 +1537,7 @@ export default function LandingOrdersPage({ toast = () => {} }) {
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Pencil size={17} color="#0066ff" />
-                  Modificar Pedido {editingOrder.order_number || '1'}
+                  Modificar Pedido #{editingOrder.order_number || '1'}
                 </h3>
                 <small style={{ color: 'var(--muted, #64748b)' }}>
                   Corrige los datos del cliente, dirección o producto antes de despachar a bodega.
@@ -1323,14 +1657,14 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                     Proveedor
                   </label>
                   <select 
-                    value={editingOrder.supplier_platform || 'Dropea'} 
+                    value={editingOrder.supplier_platform || 'Dropi'} 
                     onChange={e => setEditingOrder({ ...editingOrder, supplier_platform: e.target.value })}
                     className="nx-filter-input"
                     style={{ width: '100%' }}
                   >
+                    <option value="Dropi">Dropi Chile (MCP)</option>
+                    <option value="Propio">Bodega Propia (Local)</option>
                     <option value="Dropea">Dropea COD</option>
-                    <option value="Dropi">Dropi Chile</option>
-                    <option value="Propio">Bodega Propia</option>
                   </select>
                 </div>
 
@@ -1373,20 +1707,31 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                     type="text" 
                     value={editingOrder.guide_number || ''} 
                     onChange={e => setEditingOrder({ ...editingOrder, guide_number: e.target.value })}
-                    placeholder="ej: BLX-1928381"
+                    placeholder="ej: Guía transportadora real"
                     className="nx-filter-input"
                     style={{ width: '100%' }}
                   />
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border, #e2e8f0)' }}>
-                <button type="button" className="outline" onClick={() => setEditingOrder(null)}>
-                  Cancelar
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border, #e2e8f0)' }}>
+                <button
+                  type="button"
+                  className="nx-btn-del"
+                  onClick={() => handleDeleteOrder(editingOrder)}
+                  style={{ padding: '6px 12px', gap: '4px' }}
+                >
+                  <Trash2 size={13} />
+                  Eliminar Pedido
                 </button>
-                <button type="submit" className="primary" disabled={savingEdit} style={{ padding: '6px 16px', fontWeight: 700 }}>
-                  {savingEdit ? 'Guardando…' : 'Guardar Cambios'}
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button type="button" className="outline" onClick={() => setEditingOrder(null)}>
+                    Cancelar
+                  </button>
+                  <button type="submit" className="primary" disabled={savingEdit} style={{ padding: '6px 16px', fontWeight: 700 }}>
+                    {savingEdit ? 'Guardando…' : 'Guardar Cambios'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1452,7 +1797,7 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                       <input 
                         type="text" 
                         value={landing.master_sku || ''} 
-                        placeholder="ej: AERO-MAG-01"
+                        placeholder="ej: NEX-00200"
                         className="nx-filter-input"
                         onChange={e => {
                           const val = e.target.value;
@@ -1467,7 +1812,7 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                         Plataforma Proveedor
                       </label>
                       <select 
-                        value={landing.supplier_platform || 'Dropea'}
+                        value={landing.supplier_platform || 'Dropi'}
                         onChange={e => {
                           const val = e.target.value;
                           setMappings(mappings.map(m => m.id === landing.id ? { ...m, supplier_platform: val } : m));
@@ -1475,20 +1820,20 @@ export default function LandingOrdersPage({ toast = () => {} }) {
                         className="nx-filter-input"
                         style={{ width: '100%' }}
                       >
-                        <option value="Dropea">Dropea COD</option>
-                        <option value="Dropi">Dropi Chile</option>
+                        <option value="Dropi">Dropi Chile (MCP)</option>
                         <option value="Propio">Bodega Propia (Local)</option>
+                        <option value="Dropea">Dropea COD</option>
                       </select>
                     </div>
 
                     <div>
                       <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--muted, #64748b)', marginBottom: '2px' }}>
-                        ID en Proveedor (ej: 10482)
+                        ID en Proveedor (ej: 189500)
                       </label>
                       <input 
                         type="text" 
                         value={landing.supplier_product_id || ''} 
-                        placeholder="10482"
+                        placeholder="189500"
                         className="nx-filter-input"
                         onChange={e => {
                           const val = e.target.value;

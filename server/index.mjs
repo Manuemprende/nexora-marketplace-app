@@ -40,7 +40,7 @@ import {dropeaWebhookPath,receiveDropeaWebhook} from './dropea-notifications.mjs
 import {dropiClient} from './dropi.mjs';
 import {facebookService} from './facebook.mjs';
 import {getLandingBySlug,listLandings,createOrUpdateLiveLanding,deleteLiveLanding,createLiveLandingOrder,getLiveStock,getRadarWinners} from './live-landings.mjs';
-import {trackVisit,receiveLandingOrder,getLandingsMetrics,registerLanding,deleteLanding,getLandingOrders,getAllLandingOrders,updateLandingOrderStatus,updateLandingOrderDetails,sendOrderToSupplier,quoteLandingOrderShipping,updateLandingMapping,toggleLandingCampaign} from './landings.mjs';
+import {trackVisit,receiveLandingOrder,getLandingsMetrics,registerLanding,deleteLanding,getLandingOrders,getAllLandingOrders,updateLandingOrderStatus,updateLandingOrderDetails,deleteLandingOrder,cleanupTestLandingOrders,sendLandingOrderWhatsAppRequest,processIncomingWhatsAppConfirmation,verifyWhatsAppCloudWebhook,receiveWhatsAppCloudWebhook,getLandingOrderAuditLogs,sendOrderToSupplier,quoteLandingOrderShipping,updateLandingMapping,toggleLandingCampaign} from './landings.mjs';
 import http from 'node:http';
 import { randomBytes, createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -59,7 +59,7 @@ async function readBody(req,limit=100000) {
 export function createApi({dbPath=resolve('data/nexora.sqlite'),allowDemo=true,requireCustomer=false}={}) {
   const db=openDatabase(dbPath,{seedDemoData:allowDemo}), attempts=new Map();
   const saleNotifications=createSaleNotifications(db);
-  const dropiWeb=createDropiWebConnector(db),connectionOverview=createConnectionOverview(db,dropiWeb);const whatsapp=createWhatsappService(db);let stopPrepared=()=>{};const restartPrepared=()=>{stopPrepared();stopPrepared=startPreparedJumpsellerWorker(db);};
+  const dropiWeb=createDropiWebConnector(db),connectionOverview=createConnectionOverview(db,dropiWeb);const whatsapp=createWhatsappService(db,{onIncomingMessage:msg=>processIncomingWhatsAppConfirmation(db,msg)});let stopPrepared=()=>{};const restartPrepared=()=>{stopPrepared();stopPrepared=startPreparedJumpsellerWorker(db);};
   const production=process.env.NODE_ENV==='production';
   const allowedOrigins=production?[...(process.env.NEXORA_PUBLIC_ORIGIN||'').split(','),...(process.env.MEIBO_ALLOWED_ORIGINS||'').split(',')].filter(Boolean):['http://localhost:4876','http://127.0.0.1:4876','http://localhost:5173','http://127.0.0.1:5173','http://localhost:3001','http://127.0.0.1:3001'];
   const secureCookie=production?'; Secure':'';
@@ -119,7 +119,18 @@ export function createApi({dbPath=resolve('data/nexora.sqlite'),allowDemo=true,r
       }
 
       if(path==='/api/landings/track' && method==='POST') return send(200, trackVisit(db, await readBody(req, 65536)));
-      if(path==='/api/landings/order' && method==='POST') return send(201, receiveLandingOrder(db, await readBody(req, 65536)));
+      if(path==='/api/landings/order' && method==='POST') return send(201, receiveLandingOrder(db, await readBody(req, 65536), { whatsapp }));
+      if(path==='/api/webhooks/whatsapp' && method==='GET') {
+        const verified = verifyWhatsAppCloudWebhook(Object.fromEntries(url.searchParams.entries()));
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.writeHead(200);
+        return res.end(verified.challenge);
+      }
+      if(path==='/api/webhooks/whatsapp' && method==='POST') {
+        const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>262144)fail(413,'Notificación demasiado grande');chunks.push(chunk);}
+        const receipt = await receiveWhatsAppCloudWebhook(db, Buffer.concat(chunks), req.headers);
+        return send(200, receipt);
+      }
 
       if(!['GET','POST','PUT','DELETE'].includes(method)) fail(405,'Método no permitido');
       if(path==='/api/webhooks/envios-urbanos'&&method==='POST'){
@@ -403,10 +414,18 @@ export function createApi({dbPath=resolve('data/nexora.sqlite'),allowDemo=true,r
       if(path==='/api/dropi/sync-orders'&&method==='POST') return send(200, await dropiClient.syncOrdersToNexora(db, user.id));
       if(path==='/api/radar/winners'&&method==='GET') return send(200, await getRadarWinners(Object.fromEntries(url.searchParams.entries())));
       if(path==='/api/landings/all-orders'&&method==='GET') return send(200, getAllLandingOrders(db, Object.fromEntries(url.searchParams.entries())));
+      if(path==='/api/landings/orders/cleanup-test'&&method==='POST') return send(200, cleanupTestLandingOrders(db, await readBody(req).catch(() => ({}))));
       const orderStatusMatch = /^\/api\/landings\/orders\/([^/]+)\/status$/.exec(path);
       if(orderStatusMatch && method==='PUT') return send(200, updateLandingOrderStatus(db, decodeURIComponent(orderStatusMatch[1]), await readBody(req)));
+      const orderWaReqMatch = /^\/api\/landings\/orders\/([^/]+)\/whatsapp-confirm-request$/.exec(path);
+      if(orderWaReqMatch && method==='POST') return send(200, await sendLandingOrderWhatsAppRequest(db, decodeURIComponent(orderWaReqMatch[1]), { whatsapp, ...(await readBody(req).catch(() => ({}))) }));
+      const orderWaReplyMatch = /^\/api\/landings\/orders\/([^/]+)\/whatsapp-reply$/.exec(path);
+      if(orderWaReplyMatch && method==='POST') return send(200, await processIncomingWhatsAppConfirmation(db, { orderId: decodeURIComponent(orderWaReplyMatch[1]), ...(await readBody(req)) }));
+      const orderAuditMatch = /^\/api\/landings\/orders\/([^/]+)\/audit-logs$/.exec(path);
+      if(orderAuditMatch && method==='GET') return send(200, getLandingOrderAuditLogs(db, decodeURIComponent(orderAuditMatch[1])));
       const orderEditMatch = /^\/api\/landings\/orders\/([^/]+)$/.exec(path);
       if(orderEditMatch && method==='PUT') return send(200, updateLandingOrderDetails(db, decodeURIComponent(orderEditMatch[1]), await readBody(req)));
+      if(orderEditMatch && method==='DELETE') return send(200, deleteLandingOrder(db, decodeURIComponent(orderEditMatch[1])));
       const orderSendSupplierMatch = /^\/api\/landings\/orders\/([^/]+)\/send-supplier$/.exec(path);
       if(orderSendSupplierMatch && method==='POST') return send(200, await sendOrderToSupplier(db, decodeURIComponent(orderSendSupplierMatch[1]), await readBody(req).catch(() => ({}))));
       const orderQuoteDropiMatch = /^\/api\/landings\/orders\/([^/]+)\/quote-dropi$/.exec(path);

@@ -5,7 +5,7 @@ import {
   Globe, Radio, Eye, Package, TrendingUp, DollarSign, 
   RefreshCw, Plus, ExternalLink, Copy, Check, ShoppingBag, 
   Phone, MapPin, Settings as SettingsIcon, Truck, Volume2, 
-  VolumeX, AlertCircle, Clock, CheckCircle2, X, Code, Send
+  VolumeX, AlertCircle, Clock, CheckCircle2, X, Code, Send, Trash2
 } from 'lucide-react';
 
 let cachedLandingData = (() => {
@@ -1071,13 +1071,48 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
                         </div>
                       </div>
 
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#16a34a' }}>
-                          {money(order.total_price)}
+                      <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#16a34a' }}>
+                            {money(order.total_price)}
+                          </div>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: '#d97706', background: 'rgba(217, 119, 6, 0.15)', padding: '2px 7px', borderRadius: '4px' }}>
+                            {order.status || 'PENDIENTE'}
+                          </span>
                         </div>
-                        <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: '#d97706', background: 'rgba(217, 119, 6, 0.15)', padding: '2px 7px', borderRadius: '4px' }}>
-                          {order.status || 'PENDIENTE'}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!window.confirm('\u00bfEliminar el pedido #' + (order.order_number || '') + ' de ' + order.customer_name + '?')) return;
+                            try {
+                              await api('/landings/orders/' + encodeURIComponent(order.id), { method: 'DELETE' });
+                              toast('Pedido #' + (order.order_number || '') + ' eliminado');
+                              setSelectedLandingOrders(prev => prev ? {
+                                ...prev,
+                                orders_today: Math.max(0, (prev.orders_today || 1) - 1),
+                                orders_total: Math.max(0, (prev.orders_total || 1) - 1),
+                                recent_orders: (prev.recent_orders || []).filter(o => o.id !== order.id)
+                              } : null);
+                              await loadMetrics(true);
+                            } catch (e) {
+                              toast('Error al eliminar pedido: ' + e.message);
+                            }
+                          }}
+                          title="Eliminar este pedido"
+                          style={{
+                            background: 'rgba(239, 68, 68, 0.12)',
+                            color: '#ef4444',
+                            border: '1px solid rgba(239, 68, 68, 0.35)',
+                            borderRadius: '6px',
+                            padding: '6px',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </div>
                   ))}
