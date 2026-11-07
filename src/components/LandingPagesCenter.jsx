@@ -804,29 +804,35 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
                       </h3>
                     </div>
 
-                    {/* Green Live Pill */}
-                    <div style={{ 
-                      background: (isRunning && landing.active_now > 0) ? 'rgba(34, 197, 94, 0.18)' : (isRunning ? 'rgba(34, 197, 94, 0.1)' : 'rgba(148, 163, 184, 0.12)'), 
-                      color: isRunning ? '#22c55e' : '#64748b', 
-                      border: isRunning ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid transparent',
-                      fontSize: '0.74rem', 
-                      fontWeight: 700, 
-                      padding: '2px 9px', 
-                      borderRadius: '999px',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      whiteSpace: 'nowrap',
-                      flexShrink: 0
-                    }}>
+                    {/* Green Live Pill (clic para activar/pausar campa\u00f1a) */}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleCampaign(landing, false)}
+                      title={isRunning ? "En campa\u00f1a activa (clic para pausar)" : "En pausa (clic para activar campa\u00f1a)"}
+                      style={{ 
+                        background: (isRunning && landing.active_now > 0) ? "rgba(34, 197, 94, 0.18)" : (isRunning ? "rgba(34, 197, 94, 0.1)" : "rgba(148, 163, 184, 0.12)"), 
+                        color: isRunning ? "#22c55e" : "#64748b", 
+                        border: isRunning ? "1px solid rgba(34, 197, 94, 0.4)" : "1px solid rgba(148, 163, 184, 0.2)",
+                        fontSize: "0.73rem", 
+                        fontWeight: 700, 
+                        padding: "2px 9px", 
+                        borderRadius: "999px",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "5px",
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                        cursor: "pointer"
+                      }}
+                    >
                       <span className={isRunning && landing.active_now > 0 ? "nx-live-dot" : ""} style={{ 
-                        width: '7px', 
-                        height: '7px', 
-                        borderRadius: '50%', 
-                        background: isRunning ? '#22c55e' : '#94a3b8'
+                        width: "7px", 
+                        height: "7px", 
+                        borderRadius: "50%", 
+                        background: isRunning ? "#22c55e" : "#94a3b8"
                       }} />
-                      {isRunning ? (landing.active_now + ' en vivo') : 'En pausa'}
-                    </div>
+                      {isRunning ? (landing.active_now + " en vivo") : "En pausa"}
+                    </button>
                   </div>
 
                   {/* URL Row */}
@@ -914,43 +920,29 @@ export default function LandingPagesCenter({ products = [], toast = () => {} }) 
                   </div>
                 </div>
 
-                {/* Card Actions: botones compactos con bot?n de Campa?a Activa */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingTop: '8px', borderTop: '1px solid var(--border, #f1f5f9)' }}>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleCampaign(landing, false)}
-                    title={isRunning ? 'Landing activa en campa?a publicitaria (clic para pausar)' : 'Activar esta landing en campa?a publicitaria (enciende borde verde y conteo en vivo)'}
-                    style={{
-                      flex: 1.15,
-                      height: '32px',
-                      borderRadius: '6px',
-                      padding: '0 10px',
-                      fontSize: '0.76rem',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '5px',
-                      whiteSpace: 'nowrap',
-                      transition: 'all 0.15s ease',
-                      background: isRunning ? '#16a34a' : 'rgba(148, 163, 184, 0.12)',
-                      color: isRunning ? '#ffffff' : '#cbd5e1',
-                      border: isRunning ? '1px solid #22c55e' : '1px solid rgba(148, 163, 184, 0.3)',
-                      boxShadow: isRunning ? '0 0 12px rgba(34, 197, 94, 0.35)' : 'none'
-                    }}
-                  >
-                    <Radio size={13} color={isRunning ? '#ffffff' : '#94a3b8'} />
-                    {isRunning ? 'En Campa?a' : 'Activar Campa?a'}
-                  </button>
-
+                {/* Card Actions: botones compactos, discretos y modernos */}
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", paddingTop: "8px", borderTop: "1px solid var(--border, #f1f5f9)" }}>
                   <button 
                     className="nx-btn-orders" 
                     onClick={() => setSelectedLandingOrders(landing)}
-                    style={{ flex: 0.95 }}
+                    style={{ flex: 1, whiteSpace: "nowrap" }}
                   >
                     <ShoppingBag size={13} />
                     Pedidos ({landing.orders_today})
+                  </button>
+
+                  <button
+                    type="button"
+                    className="nx-btn-tiny"
+                    onClick={() => handleToggleCampaign(landing, false)}
+                    title={isRunning ? "En campa\u00f1a activa (clic para pausar)" : "Activar campa\u00f1a en esta landing"}
+                    style={{
+                      color: isRunning ? "#22c55e" : undefined,
+                      borderColor: isRunning ? "rgba(34, 197, 94, 0.5)" : undefined,
+                      background: isRunning ? "rgba(34, 197, 94, 0.12)" : undefined
+                    }}
+                  >
+                    <Radio size={13} />
                   </button>
 
                   <button 
