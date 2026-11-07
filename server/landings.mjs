@@ -232,14 +232,20 @@ export function parseWhatsAppReplyIntent(rawText = '') {
 /**
  * Endpoint 1: Track visitor ping / heartbeat
  */
-export function trackVisit(db, input = {}) {
+export function trackVisit(db, input = {}, context = {}) {
   const rawId = input.landing_id || input.landingId || 'aerosleep';
   const landingId = sanitizeId(rawId);
   if (!landingId) fail(400, 'landing_id requerido');
 
   const visitorId = String(input.visitor_id || input.visitorId || randomUUID()).trim();
+  const rawSessionId = String(input.session_id || input.sessionId || visitorId).trim();
+  const sessionId = /^[A-Za-z0-9:_-]{8,128}$/.test(rawSessionId) ? rawSessionId : visitorId;
   const utmSource = input.utm_source ? String(input.utm_source).slice(0, 100) : null;
   const utmCampaign = input.utm_campaign ? String(input.utm_campaign).slice(0, 100) : null;
+  const funnelEvent = ['checkout_opened', 'checkout_progress'].includes(input.funnel_event) ? input.funnel_event : '';
+  const requestedStage = ['visit', 'checkout_opened', 'checkout_progress', 'purchase'].includes(input.funnel_stage) ? input.funnel_stage : 'visit';
+  const city = String(context.city || '').trim().slice(0, 100) || null;
+  const country = String(context.country || '').trim().slice(0, 80) || null;
 
   const today = getLocalDateString();
   const currentIso = now();
@@ -269,18 +275,26 @@ export function trackVisit(db, input = {}) {
     if (!landing || !landing.campaign_active) {
       return;
     }
-    const existingVisit = db.prepare('SELECT id FROM landing_visits WHERE landing_id=? AND date=? AND visitor_id=?').get(
+    const stageRank = { visit: 0, checkout_opened: 1, checkout_progress: 2, purchase: 3 };
+    const existingVisit = db.prepare('SELECT id, stage FROM landing_visits WHERE landing_id=? AND date=? AND visitor_id=?').get(
       landingId,
       today,
       visitorId
     );
 
     if (existingVisit) {
-      db.prepare('UPDATE landing_visits SET last_ping=? WHERE id=?').run(currentIso, existingVisit.id);
+      const hasAcceptedOrder = requestedStage === 'purchase' && db.prepare('SELECT 1 FROM landing_orders WHERE landing_id=? AND visitor_id=? LIMIT 1').get(landingId, visitorId);
+      const nextStage = hasAcceptedOrder && stageRank.purchase > stageRank[existingVisit.stage || 'visit']
+        ? 'purchase'
+        : stageRank[requestedStage] > stageRank[existingVisit.stage || 'visit'] && requestedStage !== 'purchase'
+          ? requestedStage
+          : existingVisit.stage || 'visit';
+      db.prepare('UPDATE landing_visits SET last_ping=?, stage=?, stage_updated_at=CASE WHEN stage<>? THEN ? ELSE stage_updated_at END WHERE id=?')
+        .run(currentIso, nextStage, nextStage, currentIso, existingVisit.id);
     } else {
       db.prepare(`
-        INSERT INTO landing_visits (id, landing_id, visitor_id, last_ping, date, utm_source, utm_campaign)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO landing_visits (id, landing_id, visitor_id, last_ping, date, utm_source, utm_campaign, stage, stage_updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         randomUUID(),
         landingId,
@@ -288,8 +302,50 @@ export function trackVisit(db, input = {}) {
         currentIso,
         today,
         utmSource,
-        utmCampaign
+        utmCampaign,
+        requestedStage === 'purchase' ? 'visit' : requestedStage,
+        currentIso
       );
+    }
+    const existingSession = db.prepare('SELECT stage FROM landing_sessions WHERE landing_id=? AND session_id=?').get(landingId, sessionId);
+    const hasAcceptedSessionOrder = requestedStage === 'purchase' && db.prepare('SELECT 1 FROM landing_orders WHERE landing_id=? AND session_id=? LIMIT 1').get(landingId, sessionId);
+    const currentSessionStage = existingSession?.stage || 'visit';
+    const nextSessionStage = hasAcceptedSessionOrder
+      ? 'purchase'
+      : stageRank[requestedStage] > stageRank[currentSessionStage] && requestedStage !== 'purchase'
+        ? requestedStage
+        : currentSessionStage;
+    if (existingSession) {
+      if (city || country) {
+        db.prepare(`UPDATE landing_activity_events SET city=COALESCE(NULLIF(city,''),?),
+          country=COALESCE(NULLIF(country,''),?)
+          WHERE landing_id=? AND session_id=? AND event_type='visit' AND (city IS NULL OR country IS NULL)`)
+          .run(city, country, landingId, sessionId);
+      }
+      db.prepare('UPDATE landing_sessions SET last_ping=?, stage=?, stage_updated_at=CASE WHEN stage<>? THEN ? ELSE stage_updated_at END WHERE landing_id=? AND session_id=?')
+        .run(currentIso, nextSessionStage, nextSessionStage, currentIso, landingId, sessionId);
+      if (nextSessionStage !== currentSessionStage && ['checkout_opened', 'checkout_progress'].includes(nextSessionStage)) {
+        db.prepare(`INSERT INTO landing_activity_events
+          (id, landing_id, session_id, visitor_id, event_type, product_name, city, country, utm_source, utm_campaign, occurred_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(randomUUID(), landingId, sessionId, visitorId, nextSessionStage, String(input.landing_name || landing.name || '').slice(0, 200), city, country, utmSource, utmCampaign, currentIso);
+      }
+    } else {
+      db.prepare(`
+        INSERT INTO landing_sessions (landing_id, session_id, visitor_id, date, started_at, last_ping, stage, stage_updated_at, utm_source, utm_campaign)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(landingId, sessionId, visitorId, today, currentIso, currentIso, requestedStage === 'purchase' ? 'visit' : requestedStage, currentIso, utmSource, utmCampaign);
+      db.prepare(`INSERT INTO landing_activity_events
+        (id, landing_id, session_id, visitor_id, event_type, product_name, city, country, utm_source, utm_campaign, occurred_at)
+        VALUES (?, ?, ?, ?, 'visit', ?, ?, ?, ?, ?, ?)`)
+        .run(randomUUID(), landingId, sessionId, visitorId, String(input.landing_name || landing.name || '').slice(0, 200), city, country, utmSource, utmCampaign, currentIso);
+    }
+    if (funnelEvent) {
+      db.prepare(`
+        INSERT INTO landing_funnel_events (id, landing_id, visitor_id, event_type, event_date, occurred_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(landing_id, visitor_id, event_date, event_type) DO UPDATE SET occurred_at=excluded.occurred_at
+      `).run(randomUUID(), landingId, visitorId, funnelEvent, today, currentIso);
     }
   });
 
@@ -300,7 +356,7 @@ export function trackVisit(db, input = {}) {
  * Endpoint 2: Receive Cash on Delivery (COD) order from independent landing
  * Con idempotencia/deduplicación y solicitud opcional de confirmación WhatsApp.
  */
-export function receiveLandingOrder(db, input = {}, { whatsapp = null } = {}) {
+export function receiveLandingOrder(db, input = {}, { whatsapp = null, context = {} } = {}) {
   ensureLandingOrderSchema(db);
   const rawId = input.landing_id || input.landingId || 'aerosleep';
   const landingId = sanitizeId(rawId);
@@ -316,6 +372,9 @@ export function receiveLandingOrder(db, input = {}, { whatsapp = null } = {}) {
   const address = text(customer.address || '', 'Dirección', 250, false);
   const commune = text(customer.commune || customer.comuna || 'Santiago', 'Comuna', 100, false);
   const region = text(customer.region || 'Región Metropolitana', 'Región', 100, false);
+  const visitorId = String(input.visitor_id || input.visitorId || '').trim().slice(0, 128);
+  const rawSessionId = String(input.session_id || input.sessionId || '').trim();
+  const sessionId = /^[A-Za-z0-9:_-]{8,128}$/.test(rawSessionId) ? rawSessionId : '';
 
   const utmSource = input.utm_source ? String(input.utm_source).slice(0, 100) : null;
   const utmCampaign = input.utm_campaign ? String(input.utm_campaign).slice(0, 100) : null;
@@ -417,6 +476,20 @@ export function receiveLandingOrder(db, input = {}, { whatsapp = null } = {}) {
       currentIso
     );
 
+    if (visitorId) {
+      db.prepare('UPDATE landing_visits SET last_ping=?, stage=\'purchase\', stage_updated_at=? WHERE landing_id=? AND visitor_id=? AND date=?')
+        .run(currentIso, currentIso, landingId, visitorId, getLocalDateString());
+      db.prepare(`
+        INSERT INTO landing_funnel_events (id, landing_id, visitor_id, event_type, event_date, occurred_at, order_id)
+        VALUES (?, ?, ?, 'purchase', ?, ?, ?)
+        ON CONFLICT(landing_id, visitor_id, event_date, event_type) DO UPDATE SET occurred_at=excluded.occurred_at, order_id=excluded.order_id
+      `).run(randomUUID(), landingId, visitorId, getLocalDateString(), currentIso, orderId);
+    }
+    if (sessionId) {
+      db.prepare('UPDATE landing_sessions SET last_ping=?, stage=\'purchase\', stage_updated_at=? WHERE landing_id=? AND session_id=?')
+        .run(currentIso, currentIso, landingId, sessionId);
+    }
+
     // 4. Find or associate variant in Nexora catalog if exists
     let matchedVariant = db.prepare(`
       SELECT v.id, v.meibo_sku, v.price 
@@ -456,9 +529,9 @@ export function receiveLandingOrder(db, input = {}, { whatsapp = null } = {}) {
       INSERT INTO landing_orders (
         id, landing_id, order_id, order_number, product_name, pack_selected, total_price,
         customer_name, customer_phone, customer_address, customer_commune, customer_region,
-        master_sku, supplier_platform, supplier_product_id, utm_source, utm_campaign, 
+        master_sku, supplier_platform, supplier_product_id, utm_source, utm_campaign, visitor_id, session_id,
         status, dropea_status, dropi_status, idempotency_key, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       landingOrderId,
       landingId,
@@ -477,12 +550,23 @@ export function receiveLandingOrder(db, input = {}, { whatsapp = null } = {}) {
       supplierProductId,
       utmSource,
       utmCampaign,
+      visitorId || null,
+      sessionId || null,
       'pending',
       null,
       null,
       idempotencyKey,
       currentIso
     );
+
+    const activitySessionId = sessionId || `order-${landingOrderId}`;
+    db.prepare(`INSERT INTO landing_activity_events
+      (id, landing_id, session_id, visitor_id, event_type, product_name, order_id, order_number, total_price, city, country, utm_source, utm_campaign, occurred_at)
+      VALUES (?, ?, ?, ?, 'purchase', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(randomUUID(), landingId, activitySessionId, visitorId || `order-${landingOrderId}`, productName, orderId, nextNumber, totalPrice,
+        String(context.city || '').trim().slice(0, 100) || null,
+        String(context.country || '').trim().slice(0, 80) || null,
+        utmSource, utmCampaign, currentIso);
 
     return {
       ok: true,
@@ -787,7 +871,7 @@ function ensureCampaignColumn(db) {
 export function getLandingsMetrics(db, query = {}) {
   ensureCampaignColumn(db);
   ensureLandingOrderSchema(db);
-  const activeThreshold = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  const activeThreshold = new Date(Date.now() - 45 * 1000).toISOString();
   const range = resolveDateRange(query);
   const { period, from, to, today, utcToday } = range;
 
@@ -795,11 +879,17 @@ export function getLandingsMetrics(db, query = {}) {
 
   const list = allLandings.map(landing => {
     const activeRow = landing.campaign_active ? db.prepare(`
-      SELECT COUNT(DISTINCT visitor_id) as c 
-      FROM landing_visits 
+      SELECT COUNT(DISTINCT session_id) as c
+      FROM landing_sessions
       WHERE landing_id=? AND last_ping >= ?
     `).get(landing.id, activeThreshold) : { c: 0 };
     const activeNow = activeRow?.c || 0;
+    const activeVisitorRow = landing.campaign_active ? db.prepare(`
+      SELECT COUNT(DISTINCT visitor_id) as c
+      FROM landing_visits
+      WHERE landing_id=? AND last_ping >= ?
+    `).get(landing.id, activeThreshold) : { c: 0 };
+    const activeVisitors = activeVisitorRow?.c || 0;
 
     let visitsPeriod = 0;
     if (period === 'all') {
@@ -825,9 +915,41 @@ export function getLandingsMetrics(db, query = {}) {
       visitsPeriod = visitsRow?.c || 0;
     }
 
+    let sessionsPeriod = 0;
+    if (period === 'all') {
+      sessionsPeriod = db.prepare('SELECT COUNT(*) AS c FROM landing_sessions WHERE landing_id=?').get(landing.id)?.c || 0;
+    } else if (period === 'today') {
+      sessionsPeriod = db.prepare('SELECT COUNT(*) AS c FROM landing_sessions WHERE landing_id=? AND date IN (?, ?)').get(landing.id, today, utcToday)?.c || 0;
+    } else {
+      sessionsPeriod = db.prepare('SELECT COUNT(*) AS c FROM landing_sessions WHERE landing_id=? AND date>=? AND date<=?').get(landing.id, from, to)?.c || 0;
+    }
+
     let ordersPeriod = 0;
     let revenuePeriod = 0;
     let recentOrders = [];
+    const sessionDateSql = period === 'all' ? '' : period === 'today' ? ' AND date IN (?, ?)' : ' AND date>=? AND date<=?';
+    const sessionDateParams = period === 'all' ? [landing.id] : period === 'today' ? [landing.id, today, utcToday] : [landing.id, from, to];
+    const checkoutOpenedPeriod = db.prepare(`
+      SELECT COUNT(*) AS c FROM landing_sessions
+      WHERE landing_id=? AND stage IN ('checkout_opened','checkout_progress','purchase')${sessionDateSql}
+    `).get(...sessionDateParams)?.c || 0;
+    const checkoutProgressPeriod = db.prepare(`
+      SELECT COUNT(*) AS c FROM landing_sessions
+      WHERE landing_id=? AND stage IN ('checkout_progress','purchase')${sessionDateSql}
+    `).get(...sessionDateParams)?.c || 0;
+
+    const liveStages = landing.campaign_active ? db.prepare(`
+      SELECT stage, COUNT(DISTINCT session_id) AS c
+      FROM landing_sessions WHERE landing_id=? AND last_ping>=? AND date IN (?, ?)
+      GROUP BY stage
+    `).all(landing.id, activeThreshold, today, utcToday) : [];
+    const funnelLive = { visitors: activeNow, visit: 0, checkout_opened: 0, checkout_progress: 0, purchase: 0 };
+    for (const row of liveStages) {
+      if (row.stage === 'visit') funnelLive.visit = row.c || 0;
+      if (row.stage === 'checkout_opened') funnelLive.checkout_opened = row.c || 0;
+      if (row.stage === 'checkout_progress') funnelLive.checkout_progress = row.c || 0;
+      if (row.stage === 'purchase') funnelLive.purchase = row.c || 0;
+    }
 
     if (period === 'all') {
       const ordersRow = db.prepare(`
@@ -887,7 +1009,7 @@ export function getLandingsMetrics(db, query = {}) {
     const ordersTotal = ordersTotalRow?.c || 0;
     const revenueTotal = ordersTotalRow?.rev || 0;
 
-    const conversionRate = visitsPeriod > 0 ? Number(((ordersPeriod / visitsPeriod) * 100).toFixed(1)) : 0;
+    const conversionRate = sessionsPeriod > 0 ? Number(((ordersPeriod / sessionsPeriod) * 100).toFixed(1)) : 0;
 
     return {
       id: landing.id,
@@ -900,8 +1022,13 @@ export function getLandingsMetrics(db, query = {}) {
       campaign_active: Boolean(landing.campaign_active),
       created_at: landing.created_at,
       active_now: activeNow,
-      visits_today: visitsPeriod,
+      active_visitors: activeVisitors,
+      visits_today: sessionsPeriod,
+      sessions_today: sessionsPeriod,
+      unique_visitors_today: visitsPeriod,
       orders_today: ordersPeriod,
+      funnel: { visits: sessionsPeriod, sessions: sessionsPeriod, unique_visitors: visitsPeriod, checkout_opened: checkoutOpenedPeriod, checkout_progress: checkoutProgressPeriod, orders: ordersPeriod },
+      funnel_live: funnelLive,
       orders_total: ordersTotal,
       revenue_today: revenuePeriod,
       revenue_total: revenueTotal,
@@ -913,12 +1040,83 @@ export function getLandingsMetrics(db, query = {}) {
   const totals = {
     total_active_now: list.reduce((sum, l) => sum + l.active_now, 0),
     total_visits_today: list.reduce((sum, l) => sum + l.visits_today, 0),
+    total_sessions_today: list.reduce((sum, l) => sum + l.sessions_today, 0),
+    total_unique_visitors: list.reduce((sum, l) => sum + l.unique_visitors_today, 0),
+    total_active_visitors: list.reduce((sum, l) => sum + l.active_visitors, 0),
     total_orders_today: list.reduce((sum, l) => sum + l.orders_today, 0),
     total_revenue_today: list.reduce((sum, l) => sum + l.revenue_today, 0),
     total_landings: list.length
   };
 
   return { landings: list, totals, filter: { period, from, to } };
+}
+
+/** Datos agregados para la vista Live / Compras de Nexora. */
+export function getLandingLiveDashboard(db, query = {}) {
+  const metrics = getLandingsMetrics(db, query);
+  const activeMetrics = metrics.landings.filter(landing => landing.campaign_active);
+  const { period, from, to, today, utcToday } = resolveDateRange(query);
+  const activityRange = period === 'all' ? { sql: '', args: [] }
+    : period === 'today' ? { sql: " AND (date(e.occurred_at,'-3 hours')=? OR substr(e.occurred_at,1,10) IN (?,?))", args: [today, today, utcToday] }
+      : { sql: " AND (date(e.occurred_at,'-3 hours') BETWEEN ? AND ? OR substr(e.occurred_at,1,10) BETWEEN ? AND ?)", args: [from, to, from, to] };
+  const liveSince = new Date(Date.now() - 45 * 1000).toISOString();
+  const recentOrderSince = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+  const landings = activeMetrics.map(landing => {
+    const locations = db.prepare(`SELECT NULLIF(e.city,'') AS city, NULLIF(e.country,'') AS country,
+        COUNT(DISTINCT e.session_id) AS sessions FROM landing_activity_events e
+      WHERE e.landing_id=? AND e.event_type='visit' AND (e.city IS NOT NULL OR e.country IS NOT NULL)${activityRange.sql}
+      GROUP BY city,country ORDER BY sessions DESC LIMIT 5`).all(landing.id, ...activityRange.args);
+    const firstTime = period === 'all'
+      ? db.prepare(`SELECT COUNT(DISTINCT s.visitor_id) AS c FROM landing_sessions s WHERE s.landing_id=? AND NOT EXISTS
+          (SELECT 1 FROM landing_sessions p WHERE p.landing_id=s.landing_id AND p.visitor_id=s.visitor_id AND p.date<s.date)`).get(landing.id)?.c || 0
+      : period === 'today'
+        ? db.prepare(`SELECT COUNT(DISTINCT s.visitor_id) AS c FROM landing_sessions s WHERE s.landing_id=? AND s.date IN (?,?) AND NOT EXISTS
+            (SELECT 1 FROM landing_sessions p WHERE p.landing_id=s.landing_id AND p.visitor_id=s.visitor_id AND p.date<s.date)`).get(landing.id, today, utcToday)?.c || 0
+        : db.prepare(`SELECT COUNT(DISTINCT s.visitor_id) AS c FROM landing_sessions s WHERE s.landing_id=? AND s.date BETWEEN ? AND ? AND NOT EXISTS
+            (SELECT 1 FROM landing_sessions p WHERE p.landing_id=s.landing_id AND p.visitor_id=s.visitor_id AND p.date<s.date)`).get(landing.id, from, to)?.c || 0;
+    const productRange = period === 'all' ? { sql: '', args: [] }
+      : period === 'today' ? { sql: " AND (date(o.created_at,'-3 hours')=? OR substr(o.created_at,1,10) IN (?,?))", args: [today, today, utcToday] }
+        : { sql: " AND (date(o.created_at,'-3 hours') BETWEEN ? AND ? OR substr(o.created_at,1,10) BETWEEN ? AND ?)", args: [from, to, from, to] };
+    const topProducts = db.prepare(`SELECT o.product_name AS name, COUNT(*) AS orders, COALESCE(SUM(o.total_price),0) AS revenue
+      FROM landing_orders o WHERE o.landing_id=? AND o.product_name<>''${productRange.sql}
+      GROUP BY o.product_name ORDER BY orders DESC, revenue DESC LIMIT 5`).all(landing.id, ...productRange.args);
+    const customers = db.prepare(`SELECT COUNT(DISTINCT o.customer_phone) AS total,
+      COUNT(DISTINCT CASE WHEN NOT EXISTS (SELECT 1 FROM landing_orders p
+        WHERE p.landing_id=o.landing_id AND p.customer_phone=o.customer_phone AND p.created_at<o.created_at)
+        THEN o.customer_phone END) AS new_customers
+      FROM landing_orders o WHERE o.landing_id=? AND TRIM(COALESCE(o.customer_phone,''))<>''${productRange.sql}`)
+      .get(landing.id, ...productRange.args);
+    const behaviorRows = db.prepare(`SELECT stage,COUNT(DISTINCT session_id) AS c FROM landing_sessions
+      WHERE landing_id=? AND last_ping>=? GROUP BY stage`).all(landing.id, liveSince);
+    const recentOrderCount = db.prepare(`SELECT COUNT(*) AS c FROM landing_orders WHERE landing_id=? AND created_at>=?`).get(landing.id, recentOrderSince)?.c || 0;
+    const behavior = { active_carts: 0, checking_out: 0, purchased: recentOrderCount };
+    for (const row of behaviorRows) {
+      if (row.stage === 'visit') behavior.active_carts = row.c || 0;
+      if (row.stage === 'checkout_opened' || row.stage === 'checkout_progress') behavior.checking_out += row.c || 0;
+      if (row.stage === 'purchase' && row.c > behavior.purchased) behavior.purchased = row.c;
+    }
+    const productImage = db.prepare(`SELECT p.image_url FROM products p JOIN variants v ON v.product_id=p.id
+      WHERE v.meibo_sku=? AND p.image_url<>'' LIMIT 1`).get(landing.master_sku || '')?.image_url || '';
+    return { ...landing, product_image: productImage, first_time_visitors: firstTime, customers, locations, top_products: topProducts, behavior };
+  });
+  const activeIds = activeMetrics.map(landing => landing.id);
+  const activity = activeIds.length ? db.prepare(`SELECT e.id,e.landing_id,l.name AS landing_name,l.url AS landing_url,e.event_type,
+      e.product_name,e.order_id,e.order_number,e.total_price,e.city,e.country,e.utm_source,e.utm_campaign,e.occurred_at
+    FROM landing_activity_events e JOIN landings l ON l.id=e.landing_id WHERE e.landing_id IN (${activeIds.map(() => '?').join(',')})${activityRange.sql}
+    ORDER BY e.occurred_at DESC LIMIT 100`).all(...activeIds, ...activityRange.args) : [];
+  const totals = {
+    total_active_now: activeMetrics.reduce((sum, l) => sum + l.active_now, 0),
+    total_sessions_today: activeMetrics.reduce((sum, l) => sum + l.sessions_today, 0),
+    total_unique_visitors: activeMetrics.reduce((sum, l) => sum + l.unique_visitors_today, 0),
+    total_orders_today: activeMetrics.reduce((sum, l) => sum + l.orders_today, 0),
+    total_revenue_today: activeMetrics.reduce((sum, l) => sum + l.revenue_today, 0),
+    total_landings: activeMetrics.length
+  };
+  return { landings, activity, totals: { ...totals, total_sessions: totals.total_sessions_today,
+    visitors: totals.total_unique_visitors, conversion_rate: totals.total_sessions_today
+      ? Number(((totals.total_orders_today / totals.total_sessions_today) * 100).toFixed(2)) : 0 },
+    filter: metrics.filter, refreshed_at: now() };
 }
 
 /**
@@ -1613,6 +1811,14 @@ export function toggleLandingCampaign(db, id, input = {}) {
   if (input.reset_visits || !nextActive) {
     const res = db.prepare('DELETE FROM landing_visits WHERE landing_id=?').run(landingId);
     visitsCleared = res.changes || 0;
+    if (input.reset_visits) {
+      try { db.prepare('DELETE FROM landing_sessions WHERE landing_id=?').run(landingId); } catch {}
+      try { db.prepare('DELETE FROM landing_funnel_events WHERE landing_id=?').run(landingId); } catch {}
+      try { db.prepare("DELETE FROM landing_activity_events WHERE landing_id=? AND event_type!='purchase'").run(landingId); } catch {}
+    } else {
+      // Al pausar campaña, expirar los pings activos para que no queden pegados en vivo
+      try { db.prepare("UPDATE landing_sessions SET last_ping='2000-01-01T00:00:00.000Z' WHERE landing_id=?").run(landingId); } catch {}
+    }
   }
 
   return {
