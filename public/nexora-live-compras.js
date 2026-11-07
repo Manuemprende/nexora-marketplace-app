@@ -936,19 +936,19 @@
             '<div class="nxlc-segbar"><span style="width:' + (live > 0 ? 70 : 12) + '%;background:#0ea5e9"></span><span style="width:30%;background:#7dd3fc"></span></div>' +
           '</div>' +
           '<div class="nxlc-mini">' +
-            '<div class="nxlc-mini-head"><label>Total de ventas</label><span class="nxlc-mini-badge">' + icon('report') + '</span></div>' +
+            '<div class="nxlc-mini-head"><label>Total de ventas</label></div>' +
             '<strong>' + money(revenueAmount) + '</strong>' +
             '<small>CLP en el periodo</small>' +
             '<div class="nxlc-segbar"><span style="width:' + (revenueAmount > 0 ? 75 : 18) + '%;background:#8b5cf6"></span><span style="width:25%;background:#c4b5fd"></span></div>' +
           '</div>' +
           '<div class="nxlc-mini">' +
-            '<div class="nxlc-mini-head"><label>Total de sesiones</label><span class="nxlc-mini-badge">' + icon('report') + '</span></div>' +
+            '<div class="nxlc-mini-head"><label>Total de sesiones</label></div>' +
             '<strong>' + sessionsCount.toLocaleString('es-CL') + '</strong>' +
             '<small>' + uniqueCount.toLocaleString('es-CL') + ' visitantes únicos</small>' +
             '<div class="nxlc-segbar"><span style="width:65%;background:#38bdf8"></span><span style="width:25%;background:#0284c7"></span><span style="width:10%;background:#93c5fd"></span></div>' +
           '</div>' +
           '<div class="nxlc-mini">' +
-            '<div class="nxlc-mini-head"><label>Total de órdenes</label><span class="nxlc-mini-badge">' + icon('report') + '</span></div>' +
+            '<div class="nxlc-mini-head"><label>Total de órdenes</label></div>' +
             '<strong>' + ordersCount.toLocaleString('es-CL') + '</strong>' +
             '<small>' + (sessionsCount ? ((ordersCount / sessionsCount) * 100).toLocaleString('es-CL', { maximumFractionDigits: 1 }) : 0) + '% conversión</small>' +
             '<div class="nxlc-segbar"><span style="width:' + (ordersCount > 0 ? 75 : 18) + '%;background:#8b5cf6"></span><span style="width:25%;background:#c4b5fd"></span></div>' +
@@ -1015,7 +1015,7 @@
       '<div class="nxlc-wrap">' +
         '<div class="nxlc-section-head">' +
           '<div class="nxlc-title-group">' +
-            '<h2>' + icon('layers') + 'Mis Landings Activas (' + rows.length + ')</h2>' +
+            '<h2>Mis Landings Activas (' + rows.length + ')</h2>' +
             '<span class="nxlc-sync-pill"><span class="nxlc-live-dot"></span>Actualizado ' + time(data.refreshed_at) + '</span>' +
           '</div>' +
           '<div class="nxlc-toolbar">' +
